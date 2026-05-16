@@ -1,0 +1,317 @@
+[
+  {
+    "id": "macbook-bottom-case",
+    "category": "electronics",
+    "title": "MacBook bottom-case screws",
+    "triggers": ["macbook", "bottom case", "bottom of macbook", "lower case", "laptop bottom"],
+    "match_behavior": "guidance-only",
+    "stock_status": "not-stocked",
+    "canonical_query": null,
+    "recommended_part": "Apple lower-case pentalobe screw set",
+    "recommended_tool": "P5 Pentalobe driver",
+    "fitment_note": "Exact screw lengths/counts vary by MacBook model; use a model-specific screw set or OEM/repair-source part.",
+    "confidence": 0.72,
+    "status": "needs-clarification",
+    "safety_class": "caution",
+    "missing_facts": ["model_year"],
+    "clarifying_question": {
+      "label": "Which MacBook model or year?",
+      "choices": [
+        {
+          "label": "14-inch 2021-2023",
+          "query_rewrite": "MacBook Pro 14 2021 bottom case screws"
+        },
+        {
+          "label": "13-inch 2020",
+          "query_rewrite": "MacBook Pro 13 2020 bottom case screws"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Bottom-case screw set",
+        "quantity": 8,
+        "note": "Verify exact model before install"
+      }
+    ],
+    "warnings": [
+      "MacBook Pro lower-case screws are proprietary/model-specific pentalobe screws, not standard Phillips machine screws.",
+      "Do not mix screw lengths; wrong length can damage internal parts.",
+      "No verified stocked catalog match is available in this demo catalog."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "m2-ssd-standoff",
+    "category": "electronics",
+    "title": "M.2 SSD or laptop standoff screw",
+    "triggers": ["m.2", "m2 ssd", "ssd screw", "wifi card screw", "standoff screw"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "m4 button socket cap screw steel black oxide",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.64,
+    "status": "needs-clarification",
+    "safety_class": "caution",
+    "missing_facts": ["device_or_standoff"],
+    "clarifying_question": {
+      "label": "What is the screw holding?",
+      "choices": [
+        {
+          "label": "M.2 SSD",
+          "query_rewrite": "M.2 SSD mounting screw"
+        },
+        {
+          "label": "Laptop Wi-Fi card",
+          "query_rewrite": "laptop Wi-Fi card screw"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Small electronics screw candidates",
+        "quantity": 4,
+        "note": "Confirm thread and length against the standoff"
+      }
+    ],
+    "warnings": [
+      "Board screws are length-sensitive; too long can damage components.",
+      "Do not force a screw if pitch or diameter feels wrong."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "ikea-flat-pack-hardware",
+    "category": "furniture",
+    "title": "Flat-pack furniture replacement hardware",
+    "triggers": ["ikea", "missing hardware", "bed frame", "malm", "kallax", "flat pack", "furniture bolt"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "m6 socket head cap screw steel zinc",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.7,
+    "status": "needs-clarification",
+    "safety_class": "low",
+    "missing_facts": ["product_or_part_number"],
+    "clarifying_question": {
+      "label": "Do you have a product name or part number?",
+      "choices": [
+        {
+          "label": "Missing bed-frame bolt",
+          "query_rewrite": "IKEA missing bed frame bolts"
+        },
+        {
+          "label": "Missing cam-lock style hardware",
+          "query_rewrite": "IKEA cam lock bookshelf hardware"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Furniture hardware candidate pack",
+        "quantity": 8,
+        "note": "Match one existing bolt or manual part number before buying"
+      }
+    ],
+    "warnings": [
+      "Flat-pack hardware varies by model and assembly step.",
+      "Use the manual part number if available."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "bike-bottle-cage",
+    "category": "bicycle",
+    "title": "Bike bottle-cage bolts",
+    "triggers": ["bike bottle cage", "bicycle bottle cage", "water bottle cage", "bottle cage bolts"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "m5 socket head cap screw stainless steel plain",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.82,
+    "status": "ready",
+    "safety_class": "low",
+    "missing_facts": [],
+    "clarifying_question": null,
+    "kit": [
+      {
+        "label": "Bottle-cage bolt pair",
+        "quantity": 2,
+        "note": "Common accessory hardware; confirm frame boss accepts M5"
+      }
+    ],
+    "warnings": [
+      "Accessory bolts are usually low risk, but do not force threads into the frame."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "boat-hatch-saltwater",
+    "category": "marine",
+    "title": "Boat hatch screws for saltwater exposure",
+    "triggers": ["boat hatch", "saltwater", "marine", "dock", "rusted boat", "hatch screws"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "316 stainless steel phillips pan machine screw plain",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.78,
+    "status": "needs-clarification",
+    "safety_class": "caution",
+    "missing_facts": ["contact_material", "size"],
+    "clarifying_question": {
+      "label": "What material is the hatch or frame touching?",
+      "choices": [
+        {
+          "label": "Fiberglass or plastic",
+          "query_rewrite": "boat hatch screws saltwater fiberglass frame"
+        },
+        {
+          "label": "Aluminum frame",
+          "query_rewrite": "boat hatch screws saltwater aluminum frame"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Corrosion-resistant hatch screw candidates",
+        "quantity": 6,
+        "note": "Prefer 316 stainless in saltwater; verify size and head style"
+      }
+    ],
+    "warnings": [
+      "Zinc-plated hardware is a poor long-term choice around saltwater.",
+      "Check nearby metals for galvanic corrosion risk."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "patio-chair-rusted",
+    "category": "outdoor",
+    "title": "Outdoor patio-chair rusted screws",
+    "triggers": ["patio chair", "outdoor chair", "grill screws", "rusted screws", "outdoor screws"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "18-8 stainless steel phillips pan machine screw plain",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.68,
+    "status": "needs-clarification",
+    "safety_class": "low",
+    "missing_facts": ["size_or_head_style"],
+    "clarifying_question": {
+      "label": "What is the screw holding?",
+      "choices": [
+        {
+          "label": "Chair frame or seat panel",
+          "query_rewrite": "patio chair rusted frame screws stainless"
+        },
+        {
+          "label": "Outdoor grill cover or panel",
+          "query_rewrite": "outdoor grill panel screws stainless"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Outdoor replacement screw candidates",
+        "quantity": 8,
+        "note": "Match one existing screw for diameter and length"
+      }
+    ],
+    "warnings": [
+      "Outdoor replacements should prioritize corrosion resistance over plain zinc."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "appliance-panel-hardware",
+    "category": "appliance",
+    "title": "Appliance panel or handle screws",
+    "triggers": ["dishwasher toe kick", "toe kick screws", "fridge handle", "refrigerator handle", "dryer door hinge", "appliance panel"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "18-8 stainless steel phillips pan machine screw plain",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.66,
+    "status": "needs-clarification",
+    "safety_class": "caution",
+    "missing_facts": ["brand_model", "location"],
+    "clarifying_question": {
+      "label": "Which appliance area?",
+      "choices": [
+        {
+          "label": "Dishwasher toe-kick panel",
+          "query_rewrite": "Whirlpool dishwasher toe kick screws"
+        },
+        {
+          "label": "Refrigerator handle set screw",
+          "query_rewrite": "fridge handle screw stainless"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Panel screw candidate set",
+        "quantity": 4,
+        "note": "Use the appliance model number for higher confidence"
+      }
+    ],
+    "warnings": [
+      "Do not replace gas, pressure, or electrical safety hardware with generic candidates.",
+      "Appliance panels can use heat- or corrosion-specific hardware."
+    ],
+    "provenance": "seeded-demo"
+  },
+  {
+    "id": "industrial-pump-guard",
+    "category": "industrial-mro",
+    "title": "Industrial guard or access-panel fasteners",
+    "triggers": ["pump guard", "access panel", "machine guard", "conveyor cover", "same screws we used", "asset p-104"],
+    "match_behavior": "catalog-match",
+    "stock_status": "stocked-candidates",
+    "canonical_query": "steel zinc hex cap screw flat washer",
+    "recommended_part": null,
+    "recommended_tool": null,
+    "fitment_note": null,
+    "confidence": 0.74,
+    "status": "needs-clarification",
+    "safety_class": "caution",
+    "missing_facts": ["asset_or_panel"],
+    "clarifying_question": {
+      "label": "Is this the same asset and location as the prior repair?",
+      "choices": [
+        {
+          "label": "Same pump guard",
+          "query_rewrite": "same screws we used for pump guard P-104"
+        },
+        {
+          "label": "Different access panel",
+          "query_rewrite": "machine access panel screws steel zinc"
+        }
+      ]
+    },
+    "kit": [
+      {
+        "label": "Guard panel hardware candidate kit",
+        "quantity": 12,
+        "note": "History-based recommendation; verify asset and location"
+      }
+    ],
+    "warnings": [
+      "Customer history is not proof of verified fit.",
+      "Use OEM or engineering guidance for load-bearing or safety-critical guards."
+    ],
+    "provenance": "customer-history"
+  }
+]

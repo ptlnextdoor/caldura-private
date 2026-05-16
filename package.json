@@ -1,0 +1,8 @@
+{
+  "name": "catalog-match-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cd frontend && npm ci && npm run build"
+  }
+}
