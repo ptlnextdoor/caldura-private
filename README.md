@@ -49,6 +49,8 @@ Repair-context searches include an optional `repair_context` object with the det
 
 Each result preserves the raw internal `score` for debugging, adds normalized `model_closeness` in the `0..1` range, and exposes calibrated `confidence` in the `0..1` range. The top-level `decision` is `ready-to-order` only when the top confidence is at least `0.90` and no ambiguity/safety blocker applies; otherwise it returns `sales-review` or `guidance-only`.
 
+The response also includes risk-control evidence on each result: `match_evidence`, `review_reasons`, `contradictions`, and `can_auto_order`. These fields separate retrieval similarity from order safety so close alternatives, missing length, material/finish mismatch, thread mismatch, and proprietary repair requests can route to review instead of becoming confidently wrong orders.
+
 ## Verification
 
 ```bash
@@ -57,3 +59,5 @@ cd frontend && npm run build
 ```
 
 Current tests cover CSV loading, parser extraction on shorthand examples, parser coverage over all 1000 catalog rows, base search ranking, and personalization on a reference query.
+
+`data/hard_negative_cases.json` tracks adversarial near-miss cases for the next calibration pass.

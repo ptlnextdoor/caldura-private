@@ -550,6 +550,51 @@ a {
   font-weight: 700;
 }
 
+.evidence-block {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.evidence-title {
+  color: var(--dim);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.evidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.evidence-chip {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.evidence-positive {
+  border-color: rgba(32, 164, 92, 0.32);
+  background: rgba(32, 164, 92, 0.08);
+  color: var(--green);
+}
+
+.evidence-warning {
+  border-color: rgba(234, 139, 0, 0.34);
+  background: rgba(234, 139, 0, 0.08);
+  color: var(--orange);
+}
+
+.evidence-danger {
+  border-color: rgba(219, 57, 57, 0.34);
+  background: rgba(219, 57, 57, 0.08);
+  color: var(--red);
+}
+
 .result-side {
   display: grid;
   align-content: start;
