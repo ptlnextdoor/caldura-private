@@ -1,0 +1,1 @@
+/Users/aayu/conductor/repos/caldura/.claude/skills/gstack/setup-gbrain/SKILL.md

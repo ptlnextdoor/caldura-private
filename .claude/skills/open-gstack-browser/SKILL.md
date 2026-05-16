@@ -1,0 +1,1 @@
+/Users/aayu/conductor/repos/caldura/.claude/skills/gstack/open-gstack-browser/SKILL.md
