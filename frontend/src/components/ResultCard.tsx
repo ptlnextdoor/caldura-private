@@ -82,10 +82,53 @@ export function ResultCard({ result, decision }: ResultCardProps) {
             <span>{result.personalization_note ?? 'ranked with order history'}</span>
           </div>
         )}
+
+        {result.match_evidence.length > 0 && (
+          <div className="evidence-block" aria-label="Why this result">
+            <span className="evidence-title">Why this result</span>
+            <div className="evidence-row">
+              {result.match_evidence.slice(0, 4).map((item) => (
+                <span className="evidence-chip evidence-positive" key={item}>
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {result.rank === 1 && decision === 'sales-review' && result.review_reasons.length > 0 && (
+          <div className="evidence-block" aria-label="Needs review">
+            <span className="evidence-title">Needs review</span>
+            <div className="evidence-row">
+              {result.review_reasons.slice(0, 4).map((item) => (
+                <span className="evidence-chip evidence-warning" key={item}>
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {result.contradictions.length > 0 && (
+          <div className="evidence-block" aria-label="Contradictions">
+            <span className="evidence-title">Contradictions</span>
+            <div className="evidence-row">
+              {result.contradictions.slice(0, 3).map((item) => (
+                <span
+                  className={`evidence-chip ${item.severity === 'hard' ? 'evidence-danger' : 'evidence-warning'}`}
+                  key={`${item.field}-${item.query_value}-${item.result_value}`}
+                >
+                  {item.field}: {item.query_value} vs {item.result_value}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <div className="result-side">
         <PackageCheck className="result-mark" size={22} />
         <MetricBadge label="Model closeness" value={`${closenessPercent}%`} tone="blue" />
+        <MetricBadge label="Auto order" value={result.can_auto_order ? 'Yes' : 'No'} tone={result.can_auto_order ? 'green' : 'muted'} />
         <MetricBadge
           label="Rank score"
           value={result.score.toFixed(3)}

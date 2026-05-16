@@ -37,6 +37,15 @@ export type SearchResult = {
   };
   personalized: boolean;
   personalization_note: string | null;
+  match_evidence: string[];
+  review_reasons: string[];
+  contradictions: Array<{
+    field: string;
+    query_value: string;
+    result_value: string;
+    severity: 'hard' | 'soft';
+  }>;
+  can_auto_order: boolean;
 };
 
 export type SearchDecision = 'ready-to-order' | 'sales-review' | 'guidance-only';
