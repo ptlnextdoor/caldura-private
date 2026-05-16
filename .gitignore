@@ -1,0 +1,11 @@
+/target/
+/frontend/node_modules/
+/node_modules/
+/frontend/dist/
+/frontend/tsconfig.tsbuildinfo
+/.playwright-cli/
+/output/
+/.context/
+/.env
+/.vercel/
+.vercel
