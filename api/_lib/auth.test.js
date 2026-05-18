@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import customersHandler from '../customers.js';
 import evalHandler from '../eval.js';
+import intakeHandler from '../intake.js';
 import searchHandler from '../search.js';
-import { searchCatalog } from './catalog.js';
+import { intakeRequest, searchCatalog } from './catalog.js';
 
 const ISSUER = 'https://issuer.example';
 const AUDIENCE = 'catalog-api';
@@ -95,6 +96,25 @@ test('search ignores malicious customer_id body and uses authenticated customer'
   assert.equal(response.body.results[0].personalized, true);
 });
 
+test('intake ignores malicious customer_id body and uses authenticated customer', async () => {
+  const rawRequest = '10 pcs same washers as last time';
+  const response = await invoke(intakeHandler, {
+    token: token({ customer_id: 'CUST-001' }),
+    body: {
+      raw_request: rawRequest,
+      customer_id: 'CUST-002',
+      use_personalization: true,
+    },
+  });
+
+  const expected = intakeRequest(rawRequest, 'CUST-001').lines[0].results[0].sku;
+  const forbidden = intakeRequest(rawRequest, 'CUST-002').lines[0].results[0].sku;
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.lines[0].results[0].sku, expected);
+  assert.notEqual(response.body.lines[0].results[0].sku, forbidden);
+  assert.equal(response.body.lines[0].results[0].personalized, true);
+});
+
 test('use_personalization false disables customer history', async () => {
   const response = await invoke(searchHandler, {
     token: token({ customer_id: 'CUST-001' }),
@@ -106,6 +126,19 @@ test('use_personalization false disables customer history', async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.results.some((result) => result.personalized), false);
+});
+
+test('intake use_personalization false disables customer history', async () => {
+  const response = await invoke(intakeHandler, {
+    token: token({ customer_id: 'CUST-001' }),
+    body: {
+      raw_request: 'same washers as last time',
+      use_personalization: false,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.lines[0].results.some((result) => result.personalized), false);
 });
 
 test('customers returns only authenticated customer', async () => {
@@ -140,6 +173,15 @@ test('production app env blocks demo mode even when requested', async () => {
       body: { query: 'M8 flat washer', customer_id: 'CUST-001' },
     });
     assert.equal(searchResponse.statusCode, 401);
+
+    const intakeResponse = await invoke(intakeHandler, {
+      body: { raw_request: 'M8 flat washer', customer_id: 'CUST-001' },
+    });
+    assert.equal(intakeResponse.statusCode, 401);
+
+    const evalResponse = await invoke(evalHandler, { method: 'GET' });
+    assert.equal(evalResponse.statusCode, 403);
+    assert.equal(evalResponse.body.code, 'diagnostics_disabled');
   });
 });
 
@@ -158,6 +200,30 @@ test('demo mode returns all customers and uses selected customer without auth', 
     });
     assert.equal(searchResponse.statusCode, 200);
     assert.equal(searchResponse.body.results[0].personalized, true);
+  });
+});
+
+test('demo mode intake uses selected customer and rejects unknown customer', async () => {
+  await withEnv({ APP_ENV: 'demo', DEMO_MODE: 'true' }, async () => {
+    const response = await invoke(intakeHandler, {
+      body: {
+        raw_request: 'same washers as last time',
+        customer_id: 'CUST-001',
+        use_personalization: true,
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.lines[0].results[0].personalized, true);
+
+    const rejected = await invoke(intakeHandler, {
+      body: {
+        raw_request: 'M8 flat washer',
+        customer_id: 'CUST-999',
+        use_personalization: true,
+      },
+    });
+    assert.equal(rejected.statusCode, 403);
+    assert.equal(rejected.body.code, 'unknown_customer');
   });
 });
 

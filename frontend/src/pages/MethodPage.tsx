@@ -4,8 +4,8 @@ import { DataRow, MetricBadge, PageSection, Panel } from '../components/ui/primi
 const steps = [
   {
     icon: <ListFilter size={20} />,
-    title: 'Parse signals',
-    copy: 'The query parser extracts thread, length, product type, material, finish, and standards. These fields are boosts, not hard filters.',
+    title: 'Extract lines',
+    copy: 'The intake layer splits a pasted RFQ or customer email into candidate line items and removes quantity text before matching.',
   },
   {
     icon: <SearchCheck size={20} />,
@@ -51,6 +51,7 @@ export function MethodPage() {
 
       <section className="two-column-page method-detail">
         <Panel kicker="Tradeoffs" title="Why this shape">
+          <DataRow label="Intake behavior" value="Line-oriented deterministic parser" />
           <DataRow label="Parser behavior" value="Soft boosts, never hard filters" />
           <DataRow label="Personalization" value="Capped additive ranking bias" />
           <DataRow label="Preferences" value="Global and product-family scoped" />
@@ -60,13 +61,17 @@ export function MethodPage() {
           <DataRow label="Demo mode" value="Customer dropdown without OIDC" />
           <DataRow label="Auth mode" value="JWT-scoped customer context" />
           <DataRow label="Storage" value="CSV loaded into memory at boot" />
+          <DataRow label="Parity" value="Rust and Vercel JS paths covered by parity-oriented tests" />
         </Panel>
         <Panel kicker="Out of scope" title="What stayed out">
           <div className="exclusion-list">
             <span>Vector database</span>
-            <span>External LLM fallback</span>
+            <span>Dense retrieval</span>
+            <span>Mamba</span>
+            <span>LLM parsing</span>
             <span>Learned calibration model</span>
-            <span>Microservices</span>
+            <span>Auth redesign</span>
+            <span>Startup fluff</span>
           </div>
           <div className="method-callout">
             <BrainCircuit size={20} />

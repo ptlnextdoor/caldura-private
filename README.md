@@ -1,11 +1,11 @@
-# Paragon Sales Validation Match
+# Caldura Sales Request Intake
 
-Single-page risk-controlled sales order matching engine for a 1000-row fastener/MRO catalog. A salesperson or automation layer enters a messy customer request, the app returns the top three SKU candidates, and a validation gate decides whether the system can auto-respond, should route internally to sales review, or should not respond with a stocked SKU.
+Risk-controlled sales request intake engine for a 1000-row fastener/MRO catalog. A salesperson or automation layer pastes a customer request or RFQ, the app extracts line items, maps each line to top SKU candidates, and a validation gate decides whether the system can auto-respond, should route internally to sales review, or should not respond with a stocked SKU.
 
 The core flow is:
 
 ```text
-customer request -> SKU candidates -> validation gate -> auto-response or sales review
+customer request/email -> line items -> SKU candidates -> validation gate -> auto-response or sales review
 ```
 
 Raw match accuracy is not enough. The system optimizes effective shipped accuracy by routing uncertain cases to humans before a wrong response reaches the buyer.
@@ -79,7 +79,21 @@ VITE_DEMO_MODE=false
 
 ## API
 
-`POST /search`
+Primary API routes use the `/api` prefix in the Vercel/frontend path. The Rust server also exposes unprefixed aliases for local direct calls.
+
+`POST /api/intake`
+
+```json
+{
+  "raw_request": "10 pcs 1/4-20 hex cap screw zinc\n25 M8 steel flat washers",
+  "use_personalization": true,
+  "customer_id": "CUST-001"
+}
+```
+
+Returns extracted lines, quantity/unit when detected, top-three SKU candidates per line, per-line validation, and an overall request validation. The parser is deterministic and line-oriented; it does not use an LLM, dense retrieval, Mamba, or a vector database.
+
+`POST /api/search`
 
 ```json
 {
@@ -95,7 +109,7 @@ In demo mode, `customer_id` selects one of the seeded demo customers. In auth-bo
 
 `GET /health` returns server status and catalog size.
 
-`GET /eval` returns deterministic seeded diagnostics only in explicit demo mode: global validation accuracy, review-routing rate, and breakdowns by customer, product family, and attribute type. Outside demo mode it returns `403` with code `diagnostics_disabled` until an internal/admin authorization model exists.
+`GET /eval` returns deterministic seeded diagnostics only in explicit demo mode: global validation accuracy, review-routing rate, breakdowns by customer, product family, and attribute type, plus customer health slices with top review/failure reasons. Outside demo mode it returns `403` with code `diagnostics_disabled` until an internal/admin authorization model exists.
 
 Repair-context searches include an optional `repair_context` object with the detected repair intent, match behavior, canonical query when catalog matching is allowed, internal clarification hints, kit idea, warnings, safety class, and provenance. Guidance-only contexts return `results: []` with a `no_verified_stocked_match` meta flag rather than substituting plausible but wrong generic SKUs. Direct fastener-spec searches return `repair_context: null`.
 
@@ -119,10 +133,24 @@ When a customer is selected, `customer_preferences` exposes inferred global and 
 
 Customer personalization is demo-selectable or authorization-bound depending on mode. Demo mode exists only to satisfy the take-home customer dropdown requirement without requiring OIDC. Auth-bound mode derives the customer from the validated token claim and ignores any stray `customer_id` field in the request body.
 
+## Why this is more than search
+
+The written challenge asks for top-three catalog matches, but the real workflow is sales order/RFQ automation. The matcher is used as a validation layer:
+
+1. extract request line items and quantities,
+2. retrieve candidate SKUs,
+3. apply customer-specific preferences,
+4. validate confidence and risky missing attributes,
+5. route uncertain cases to sales review.
+
+This mirrors production order-entry systems where raw match accuracy matters less than effective shipped accuracy. Rust and Vercel JS paths are covered by parity-oriented tests to limit drift between local API and deployment behavior. Explicitly out of scope for this demo: dense retrieval, Mamba, vector DBs, LLM parsing, auth redesign, and startup-style surface area that does not improve the intake workflow.
+
 ## Deployed Demo Smoke Test
 
 Run this checklist against the deployed Vercel demo URL before sharing it:
 
+- Homepage intake workbench works without login in demo mode.
+- `POST /api/intake` works without login in demo mode.
 - `/search` works without login in demo mode.
 - `/customers` returns seeded demo customers.
 - The customer dropdown loads and filters seeded customers.

@@ -123,8 +123,14 @@ export type SearchResponse = {
 export type EvalMetric = {
   key: string;
   accuracy: number;
+  auto_response_rate: number;
   review_routing_rate: number;
+  do_not_respond_rate: number;
   cases: number;
+  top_review_reasons: Array<{
+    reason: string;
+    count: number;
+  }>;
 };
 
 export type EvalDiagnostics = {
@@ -134,6 +140,35 @@ export type EvalDiagnostics = {
   by_customer: EvalMetric[];
   by_product_family: EvalMetric[];
   by_attribute_type: EvalMetric[];
+  customer_health: EvalMetric[];
+};
+
+export type IntakeLine = {
+  line_number: number;
+  raw_line: string;
+  normalized_query: string;
+  quantity: number | null;
+  unit: string | null;
+  parsed_query: AttrSpec;
+  results: SearchResult[];
+  decision: SearchDecision;
+  validation: Validation;
+  customer_preferences: CustomerPreference[];
+  repair_context: RepairContext | null;
+};
+
+export type IntakeResponse = {
+  customer_id: string | null;
+  raw_request: string;
+  lines: IntakeLine[];
+  overall_validation: Validation;
+  summary: {
+    line_count: number;
+    auto_respond_count: number;
+    sales_review_count: number;
+    do_not_respond_count: number;
+    latency_ms: number;
+  };
 };
 
 function authHeaders(accessToken?: string | null): Record<string, string> {
@@ -176,6 +211,29 @@ export async function searchCatalog(
       throw new Error(DEMO_SPA_401_HINT);
     }
     throw new Error(body.error ?? 'Search failed');
+  }
+  return response.json();
+}
+
+export async function intakeRequest(
+  rawRequest: string,
+  options: { accessToken?: string | null; usePersonalization?: boolean; customerId?: string | null },
+): Promise<IntakeResponse> {
+  const response = await fetch('/api/intake', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(options.accessToken) },
+    body: JSON.stringify({
+      raw_request: rawRequest,
+      use_personalization: options.usePersonalization ?? true,
+      customer_id: options.customerId ?? undefined,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 401 && isDemoMode()) {
+      throw new Error(DEMO_SPA_401_HINT);
+    }
+    throw new Error(body.error ?? 'Request intake failed');
   }
   return response.json();
 }

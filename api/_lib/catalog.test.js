@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { searchCatalog } from './catalog.js';
+import { intakeRequest, parseIntakeLines, searchCatalog } from './catalog.js';
 
 const hardNegativeCases = JSON.parse(readFileSync(new URL('../../data/hard_negative_cases.json', import.meta.url), 'utf8'));
 const goldenCases = JSON.parse(readFileSync(new URL('../../data/demo_golden_cases.json', import.meta.url), 'utf8'));
@@ -114,7 +114,120 @@ test('eval diagnostics group customer and attribute metrics', async () => {
   assert.equal(diagnostics.global_accuracy, 1);
   assert.ok(diagnostics.review_routing_rate > 0);
   assert.ok(diagnostics.by_customer.some((metric) => metric.key === 'CUST-001'));
+  assert.ok(diagnostics.customer_health.some((metric) => (
+    metric.key === 'CUST-001' && Array.isArray(metric.top_review_reasons)
+  )));
   assert.ok(diagnostics.by_attribute_type.some((metric) => (
     metric.key === 'hard-negative' && metric.review_routing_rate === 1
   )));
+});
+
+test('intake parser splits lines, strips list markers, and ignores meta lines', () => {
+  const lines = parseIntakeLines(`
+Customer email:
+Hey, can you get me:
+- 10 pcs 3/4-10 hex cap screws
+2. qty 25 M8 flat washers
+Need zinc if possible
+same washers as last time
+`);
+
+  assert.deepEqual(lines.map((line) => line.normalized_query), [
+    '3/4-10 hex cap screws',
+    'M8 flat washers',
+    'zinc if possible',
+    'same washers as last time',
+  ]);
+  assert.deepEqual(lines.map((line) => line.quantity), [10, 25, null, null]);
+  assert.deepEqual(lines.map((line) => line.unit), ['pcs', null, null, null]);
+});
+
+test('intake parser strips natural customer openers before classification', () => {
+  const cases = [
+    ['Can you get me M8 flat washers', 'M8 flat washers', null, null],
+    ['Please quote M8 flat washers', 'M8 flat washers', null, null],
+    ['Hey M8 flat washers', 'M8 flat washers', null, null],
+    ['Hi, can you get me 10 pcs 3/4-10 hex head cap screws', '3/4-10 hex head cap screws', 10, 'pcs'],
+    ['Need 25 M8 flat washers', 'M8 flat washers', 25, null],
+    ['Looking for M8 x 50mm BHCS', 'M8 x 50mm BHCS', null, null],
+  ];
+
+  for (const [raw, normalized, quantity, unit] of cases) {
+    const lines = parseIntakeLines(raw);
+    assert.equal(lines.length, 1, `line count mismatch for ${raw}`);
+    assert.equal(lines[0].normalized_query, normalized, `query mismatch for ${raw}`);
+    assert.equal(lines[0].quantity, quantity, `quantity mismatch for ${raw}`);
+    assert.equal(lines[0].unit, unit, `unit mismatch for ${raw}`);
+  }
+
+  assert.equal(parseIntakeLines('Thanks').length, 0);
+  assert.equal(parseIntakeLines('Please send quote').length, 0);
+  assert.equal(parseIntakeLines('Hi').length, 0);
+  assert.equal(parseIntakeLines('Can you help?').length, 0);
+  assert.equal(parseIntakeLines('Let me know').length, 0);
+});
+
+test('intake parser extracts supported quantity formats', () => {
+  const lines = [
+    ['qty 10 M8 flat washers', 10, null, 'M8 flat washers'],
+    ['10 pieces M8 flat washers', 10, 'pcs', 'M8 flat washers'],
+    ['10 ea M8 flat washers', 10, 'ea', 'M8 flat washers'],
+    ['x10 M8 flat washers', 10, null, 'M8 flat washers'],
+    ['M8 flat washers 10x', 10, null, 'M8 flat washers'],
+    ['25 M8 flat washers', 25, null, 'M8 flat washers'],
+  ];
+
+  for (const [raw, quantity, unit, normalized] of lines) {
+    const [line] = parseIntakeLines(raw);
+    assert.equal(line.quantity, quantity, `quantity mismatch for ${raw}`);
+    assert.equal(line.unit, unit, `unit mismatch for ${raw}`);
+    assert.equal(line.normalized_query, normalized, `query mismatch for ${raw}`);
+  }
+});
+
+test('intake request runs matcher per line and aggregates validation', () => {
+  const response = intakeRequest(`
+10 pcs 1/4-20 x 3/4 hex cap screw zinc
+25 M8 steel flat washer
+screws for bottom of MacBook Pro
+`, 'CUST-001');
+
+  assert.equal(response.lines.length, 3);
+  assert.equal(response.lines[0].validation.decision, 'AUTO_RESPOND');
+  assert.equal(response.lines[1].validation.decision, 'SALES_REVIEW');
+  assert.equal(response.lines[2].validation.decision, 'DO_NOT_RESPOND');
+  assert.equal(response.overall_validation.decision, 'DO_NOT_RESPOND');
+  assert.equal(response.summary.auto_respond_count, 1);
+  assert.equal(response.summary.sales_review_count, 1);
+  assert.equal(response.summary.do_not_respond_count, 1);
+  assert.equal(response.lines[0].results.length, 3);
+});
+
+test('intake request helper returns do-not-respond when no lines are parsed', () => {
+  const response = intakeRequest('Thanks', 'CUST-001');
+  assert.equal(response.lines.length, 0);
+  assert.equal(response.overall_validation.decision, 'DO_NOT_RESPOND');
+  assert.equal(response.summary.line_count, 0);
+  assert.equal(response.summary.auto_respond_count, 0);
+  assert.equal(response.summary.sales_review_count, 0);
+  assert.equal(response.summary.do_not_respond_count, 0);
+});
+
+test('intake demo cases cover exact, abbreviation, preference, explicit wins, hard negative, and repair guidance', () => {
+  const response = intakeRequest(`
+5 pcs 1/4-20 x 3/4 hex cap screw zinc
+SHCS 7/16 x 2-1/2
+1/4-20 hex cap screw
+1/4-20 black oxide hex cap screw
+M8 steel flat washer
+screws for bottom of MacBook Pro
+`, 'CUST-001');
+
+  assert.equal(response.lines.length, 6);
+  assert.equal(response.lines[0].validation.decision, 'AUTO_RESPOND');
+  assert.equal(response.lines[1].validation.decision, 'AUTO_RESPOND');
+  assert.equal(response.lines[2].validation.customer_history_influenced, true);
+  assert.equal(response.lines[3].validation.decision, 'AUTO_RESPOND');
+  assert.equal(response.lines[4].validation.decision, 'SALES_REVIEW');
+  assert.equal(response.lines[5].validation.decision, 'DO_NOT_RESPOND');
 });

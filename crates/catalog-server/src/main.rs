@@ -12,7 +12,7 @@ use axum::{
     http::{header, HeaderValue, Method},
     Router,
 };
-use routes::{customers, eval, health, search, AppState};
+use routes::{customers, eval, health, intake, search, AppState};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Instant};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -63,6 +63,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/customers", axum::routing::get(customers))
         .route("/search", axum::routing::post(search))
         .route("/api/search", axum::routing::post(search))
+        .route("/intake", axum::routing::post(intake))
+        .route("/api/intake", axum::routing::post(intake))
         .layer(cors_layer()?)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
