@@ -1,4 +1,5 @@
 mod auth;
+mod email;
 mod parser;
 mod profile;
 mod repair;
@@ -12,6 +13,7 @@ use axum::{
     http::{header, HeaderValue, Method},
     Router,
 };
+use email::EmailConfig;
 use routes::{customers, eval, health, intake, search, AppState};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Instant};
 use tower_http::{
@@ -45,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         Some(AuthVerifier::new(AuthConfig::from_env()?))
     };
+    let email = EmailConfig::from_env();
 
     let state = Arc::new(AppState {
         catalog_size: catalog.len(),
@@ -52,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
         matcher,
         auth,
         demo_mode,
+        email,
     });
 
     let app = Router::new()
@@ -65,6 +69,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/search", axum::routing::post(search))
         .route("/intake", axum::routing::post(intake))
         .route("/api/intake", axum::routing::post(intake))
+        .route("/email-preview", axum::routing::post(routes::email_preview))
+        .route("/api/email-preview", axum::routing::post(routes::email_preview))
         .layer(cors_layer()?)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

@@ -1,5 +1,6 @@
 use crate::{
     auth::{AuthError, AuthVerifier},
+    email::{build_email_preview_response, EmailConfig, EmailPreviewResponse},
     search::{parse_intake_lines, EvalDiagnostics, IntakeResponse, Matcher, SearchResponse},
 };
 use axum::{
@@ -18,6 +19,7 @@ pub struct AppState {
     pub matcher: Matcher,
     pub auth: Option<AuthVerifier>,
     pub demo_mode: bool,
+    pub email: EmailConfig,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,6 +39,15 @@ pub struct SearchRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct IntakeRequest {
     pub raw_request: String,
+    pub use_personalization: Option<bool>,
+    pub customer_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmailPreviewRequest {
+    pub from_email: String,
+    pub subject: String,
+    pub body: String,
     pub use_personalization: Option<bool>,
     pub customer_id: Option<String>,
 }
@@ -155,6 +166,77 @@ pub async fn intake(
         None
     };
     Ok(Json(state.matcher.intake(raw_request, customer_id)))
+}
+
+pub async fn email_preview(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<EmailPreviewRequest>,
+) -> Result<Json<EmailPreviewResponse>, ApiError> {
+    let from_email = request.from_email.trim();
+    if from_email.is_empty() {
+        return Err(ApiError::bad_request(
+            "from_email_required",
+            "from_email is required",
+        ));
+    }
+
+    let subject = request.subject.trim();
+    if subject.is_empty() {
+        return Err(ApiError::bad_request(
+            "subject_required",
+            "subject is required",
+        ));
+    }
+
+    let body = request.body.trim();
+    if body.is_empty() {
+        return Err(ApiError::bad_request("body_required", "body is required"));
+    }
+    if parse_intake_lines(body).is_empty() {
+        return Err(ApiError::bad_request(
+            "no_line_items",
+            "no line items were detected",
+        ));
+    }
+
+    if state.demo_mode {
+        let customer_id = demo_customer_id(
+            &state.matcher,
+            request.use_personalization,
+            request.customer_id.as_deref(),
+        )?;
+        let intake = state.matcher.intake(body, customer_id.as_deref());
+        return Ok(Json(build_email_preview_response(
+            intake,
+            from_email,
+            subject,
+            body,
+            &state.email,
+        )));
+    }
+
+    let user = authenticate(&state, &headers).await?;
+    if state.matcher.customer(&user.customer_id).is_none() {
+        return Err(ApiError::forbidden(
+            "unknown_customer",
+            "authenticated customer is not authorized",
+        ));
+    }
+
+    let customer_id = if request.use_personalization.unwrap_or(true) {
+        Some(user.customer_id.as_str())
+    } else {
+        None
+    };
+    let intake = state.matcher.intake(body, customer_id);
+    Ok(Json(build_email_preview_response(
+        intake,
+        from_email,
+        subject,
+        body,
+        &state.email,
+    )))
 }
 
 async fn authenticate(
@@ -314,6 +396,7 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
                 matcher,
                 auth: Some(auth),
                 demo_mode: false,
+                email: EmailConfig::new("preview", false, None, &[]),
             }),
             handle,
         )
@@ -330,6 +413,7 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
             matcher,
             auth: None,
             demo_mode: true,
+            email: EmailConfig::new("preview", false, None, &[]),
         })
     }
 
@@ -548,6 +632,36 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
     }
 
     #[tokio::test]
+    async fn email_preview_uses_authenticated_customer_and_ignores_body_customer_id() {
+        let (state, handle) = test_state().await;
+        let Json(response) = email_preview(
+            State(state.clone()),
+            headers(&token(Some("CUST-001"), AUDIENCE)),
+            Json(EmailPreviewRequest {
+                from_email: "buyer@example.com".to_string(),
+                subject: "Need washers".to_string(),
+                body: "same washers as last time".to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-002".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let forbidden = state
+            .matcher
+            .intake("same washers as last time", Some("CUST-002"))
+            .lines[0]
+            .results[0]
+            .sku
+            .clone();
+        assert_ne!(response.intake.lines[0].results[0].sku, forbidden);
+        assert!(response.intake.lines[0].results[0].personalized);
+        assert_eq!(response.recommended_action, "DRAFT_CUSTOMER_CONFIRMATION");
+        handle.abort();
+    }
+
+    #[tokio::test]
     async fn customers_returns_only_authenticated_customer() {
         let (state, handle) = test_state().await;
         let Json(response) = customers(State(state), headers(&token(Some("CUST-001"), AUDIENCE)))
@@ -650,6 +764,51 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
             HeaderMap::new(),
             Json(IntakeRequest {
                 raw_request: "M8 flat washer".to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-999".to_string()),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(rejected.status, StatusCode::FORBIDDEN);
+        assert_eq!(rejected.code, "unknown_customer");
+    }
+
+    #[tokio::test]
+    async fn demo_mode_email_preview_uses_requested_customer_id_and_rejects_unknown_customer() {
+        let state = demo_state();
+        let Json(response) = email_preview(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(EmailPreviewRequest {
+                from_email: "buyer@example.com".to_string(),
+                subject: "Repeat order".to_string(),
+                body: "same washers as last time".to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-001".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let expected = state
+            .matcher
+            .intake("same washers as last time", Some("CUST-001"))
+            .lines[0]
+            .results[0]
+            .sku
+            .clone();
+        assert_eq!(response.intake.lines[0].results[0].sku, expected);
+        assert!(response.intake.lines[0].results[0].personalized);
+        assert!(!response.delivery_guard.can_send_customer_email);
+
+        let rejected = email_preview(
+            State(state),
+            HeaderMap::new(),
+            Json(EmailPreviewRequest {
+                from_email: "buyer@example.com".to_string(),
+                subject: "Need washers".to_string(),
+                body: "M8 flat washer".to_string(),
                 use_personalization: Some(true),
                 customer_id: Some("CUST-999".to_string()),
             }),

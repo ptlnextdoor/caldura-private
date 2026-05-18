@@ -3,6 +3,7 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import customersHandler from '../customers.js';
+import emailPreviewHandler from '../email-preview.js';
 import evalHandler from '../eval.js';
 import intakeHandler from '../intake.js';
 import searchHandler from '../search.js';
@@ -35,6 +36,10 @@ before(async () => {
   process.env.AUTH_CUSTOMER_CLAIM = 'customer_id';
   process.env.APP_ENV = 'development';
   process.env.DEMO_MODE = 'false';
+  process.env.EMAIL_MODE = 'preview';
+  process.env.EMAIL_SEND_ENABLED = 'false';
+  process.env.SALES_REP_EMAIL = '';
+  process.env.EMAIL_RECIPIENT_ALLOWLIST = '';
 });
 
 after(async () => {
@@ -113,6 +118,23 @@ test('intake ignores malicious customer_id body and uses authenticated customer'
   assert.equal(response.body.lines[0].results[0].sku, expected);
   assert.notEqual(response.body.lines[0].results[0].sku, forbidden);
   assert.equal(response.body.lines[0].results[0].personalized, true);
+});
+
+test('email preview ignores malicious customer_id body and uses authenticated customer', async () => {
+  const response = await invoke(emailPreviewHandler, {
+    token: token({ customer_id: 'CUST-001' }),
+    body: {
+      from_email: 'buyer@example.com',
+      subject: 'Need washers',
+      body: 'same washers as last time',
+      customer_id: 'CUST-002',
+      use_personalization: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.intake.lines[0].results[0].personalized, true);
+  assert.equal(response.body.customer_confirmation_draft?.to, 'buyer@example.com');
 });
 
 test('use_personalization false disables customer history', async () => {
@@ -218,6 +240,34 @@ test('demo mode intake uses selected customer and rejects unknown customer', asy
     const rejected = await invoke(intakeHandler, {
       body: {
         raw_request: 'M8 flat washer',
+        customer_id: 'CUST-999',
+        use_personalization: true,
+      },
+    });
+    assert.equal(rejected.statusCode, 403);
+    assert.equal(rejected.body.code, 'unknown_customer');
+  });
+});
+
+test('demo mode email preview uses selected customer and rejects unknown customer', async () => {
+  await withEnv({ APP_ENV: 'demo', DEMO_MODE: 'true' }, async () => {
+    const response = await invoke(emailPreviewHandler, {
+      body: {
+        from_email: 'buyer@example.com',
+        subject: 'Repeat order',
+        body: 'same washers as last time',
+        customer_id: 'CUST-001',
+        use_personalization: true,
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.intake.lines[0].results[0].personalized, true);
+
+    const rejected = await invoke(emailPreviewHandler, {
+      body: {
+        from_email: 'buyer@example.com',
+        subject: 'Need washers',
+        body: 'M8 flat washer',
         customer_id: 'CUST-999',
         use_personalization: true,
       },

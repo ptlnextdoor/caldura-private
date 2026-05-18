@@ -24,6 +24,7 @@ export type Customer = {
 };
 
 export type ValidationDecision = 'AUTO_RESPOND' | 'SALES_REVIEW' | 'DO_NOT_RESPOND';
+export type RecommendedAction = 'DRAFT_CUSTOMER_CONFIRMATION' | 'ESCALATE_SALES_REVIEW' | 'ESCALATE_BLOCKED_REQUEST';
 
 export type Validation = {
   decision: ValidationDecision;
@@ -171,6 +172,28 @@ export type IntakeResponse = {
   };
 };
 
+export type EmailDraft = {
+  to: string | null;
+  subject: string;
+  body: string;
+};
+
+export type DeliveryGuard = {
+  email_mode: 'preview' | 'live' | string;
+  send_enabled: boolean;
+  recipient_allowlisted: boolean;
+  can_send_customer_email: boolean;
+  blocked_reasons: string[];
+};
+
+export type EmailPreviewResponse = {
+  intake: IntakeResponse;
+  recommended_action: RecommendedAction;
+  customer_confirmation_draft: EmailDraft | null;
+  internal_sales_draft: EmailDraft | null;
+  delivery_guard: DeliveryGuard;
+};
+
 function authHeaders(accessToken?: string | null): Record<string, string> {
   return accessToken
     ? {
@@ -234,6 +257,31 @@ export async function intakeRequest(
       throw new Error(DEMO_SPA_401_HINT);
     }
     throw new Error(body.error ?? 'Request intake failed');
+  }
+  return response.json();
+}
+
+export async function emailPreviewRequest(
+  payload: { fromEmail: string; subject: string; body: string },
+  options: { accessToken?: string | null; usePersonalization?: boolean; customerId?: string | null },
+): Promise<EmailPreviewResponse> {
+  const response = await fetch('/api/email-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(options.accessToken) },
+    body: JSON.stringify({
+      from_email: payload.fromEmail,
+      subject: payload.subject,
+      body: payload.body,
+      use_personalization: options.usePersonalization ?? true,
+      customer_id: options.customerId ?? undefined,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 401 && isDemoMode()) {
+      throw new Error(DEMO_SPA_401_HINT);
+    }
+    throw new Error(body.error ?? 'Email preview failed');
   }
   return response.json();
 }
