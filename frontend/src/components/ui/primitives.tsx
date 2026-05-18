@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
+import { LiquidGlass } from './liquid-glass';
 
 type PanelProps = {
   children: ReactNode;
   className?: string;
+  glass?: boolean;
   title?: ReactNode;
   kicker?: string;
 };
 
-export function Panel({ children, className = '', title, kicker }: PanelProps) {
-  return (
-    <section className={`panel ${className}`}>
+export function Panel({ children, className = '', glass = true, title, kicker }: PanelProps) {
+  const content = (
+    <>
       {(title || kicker) && (
         <div className="panel-heading">
           {kicker && <span className="section-kicker">{kicker}</span>}
@@ -17,7 +19,17 @@ export function Panel({ children, className = '', title, kicker }: PanelProps) {
         </div>
       )}
       {children}
-    </section>
+    </>
+  );
+
+  if (!glass) {
+    return <section className={`panel ${className}`}>{content}</section>;
+  }
+
+  return (
+    <LiquidGlass as="section" className={`panel panel-glass ${className}`} contentClassName="panel-glass-content">
+      {content}
+    </LiquidGlass>
   );
 }
 

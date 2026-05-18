@@ -1,10 +1,11 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ElementType, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
 type LiquidGlassProps = {
+  as?: ElementType;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
@@ -13,6 +14,7 @@ type LiquidGlassProps = {
 };
 
 export function LiquidGlass({
+  as: Component = "div",
   children,
   className,
   contentClassName,
@@ -26,9 +28,9 @@ export function LiquidGlass({
   };
 
   return (
-    <div
+    <Component
       className={cn(
-        "liquid-glass relative flex overflow-hidden text-black transition-all duration-700",
+        "liquid-glass relative overflow-hidden text-black transition-all duration-700",
         interactive && "cursor-pointer",
         className,
       )}
@@ -62,7 +64,7 @@ export function LiquidGlass({
         }}
       />
       <div className={cn("relative z-30", contentClassName)}>{children}</div>
-    </div>
+    </Component>
   );
 }
 

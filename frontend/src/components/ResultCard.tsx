@@ -1,5 +1,6 @@
 import { BadgeCheck, History, PackageCheck, SearchCheck } from 'lucide-react';
 import type { SearchDecision, SearchResult, ValidationDecision } from '../api';
+import { LiquidGlass } from './ui/liquid-glass';
 import { MetricBadge } from './ui/primitives';
 
 type ResultCardProps = {
@@ -66,7 +67,7 @@ export function ResultCard({ result, decision, validationDecision }: ResultCardP
   const DecisionIcon = result.rank === 1 && decision === 'ready-to-order' ? BadgeCheck : SearchCheck;
 
   return (
-    <article className="result-card">
+    <LiquidGlass as="article" className="result-card result-card-glass" contentClassName="result-card-content">
       <div className="result-rank">{result.rank}</div>
       <div className="result-main">
         <div className="result-heading">
@@ -155,6 +156,6 @@ export function ResultCard({ result, decision, validationDecision }: ResultCardP
           title="Internal ranking strength; can exceed 1.0 because customer history and catalog evidence add boosts."
         />
       </div>
-    </article>
+    </LiquidGlass>
   );
 }

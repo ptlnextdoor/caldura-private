@@ -324,6 +324,35 @@ a {
   padding: 20px;
 }
 
+.panel-glass,
+.result-card-glass {
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  border-radius: 22px;
+}
+
+.panel-glass-content,
+.result-card-content {
+  display: inherit;
+  flex: 1 1 auto;
+  grid-column: 1 / -1;
+  grid-template-columns: inherit;
+  grid-auto-flow: inherit;
+  align-content: inherit;
+  align-items: inherit;
+  justify-content: inherit;
+  justify-items: inherit;
+  width: 100%;
+  min-width: 0;
+  gap: inherit;
+}
+
+.panel-glass:hover,
+.result-card-glass:hover {
+  transform: translateY(-1px);
+}
+
 .panel--glass {
   border: 0;
   background: transparent;
@@ -1630,8 +1659,13 @@ a {
   .nav-glass,
   .nav-glass:hover,
   .hero-panel-glass,
-  .hero-panel-glass:hover {
+  .hero-panel-glass:hover,
+  .panel-glass,
+  .panel-glass:hover,
+  .result-card-glass,
+  .result-card-glass:hover {
     transition: none;
+    transform: none;
   }
 
   * {

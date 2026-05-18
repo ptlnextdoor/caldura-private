@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ClipboardList, Database, FileText, UserRound } from 'lucide-react';
 import { AuthRequired, useAuth } from '../auth';
 import { CustomerPicker } from '../components/CustomerPicker';
-import { LiquidGlass } from '../components/ui/liquid-glass';
 import { IntakeResultsSection } from '../components/IntakeResults';
 import { ValidationPanel } from '../components/ValidationPanel';
 import { Button, DataRow, MetricBadge, PageSection, Panel } from '../components/ui/primitives';
@@ -190,38 +189,36 @@ export function IntakePage() {
 
       <section className="workspace">
         <div className="search-column">
-          <LiquidGlass className="hero-panel-glass" interactive>
-            <Panel className="search-panel intake-request-panel panel--glass">
-              <form onSubmit={handleSubmit}>
-                <label className="field-label" htmlFor="raw-request">
-                  Customer request
-                </label>
-                <div className="textarea-shell">
-                  <FileText size={20} />
-                  <textarea
-                    id="raw-request"
-                    value={rawRequest}
-                    onChange={(event) => setRawRequest(event.target.value)}
-                    placeholder="Paste a customer email or RFQ with one item per line"
-                    rows={8}
-                  />
-                </div>
-                <div className="intake-actions">
-                  <Button disabled={loading} type="submit">
-                    {loading ? 'Processing' : 'Process request'}
+          <Panel className="search-panel intake-request-panel">
+            <form onSubmit={handleSubmit}>
+              <label className="field-label" htmlFor="raw-request">
+                Customer request
+              </label>
+              <div className="textarea-shell">
+                <FileText size={20} />
+                <textarea
+                  id="raw-request"
+                  value={rawRequest}
+                  onChange={(event) => setRawRequest(event.target.value)}
+                  placeholder="Paste a customer email or RFQ with one item per line"
+                  rows={8}
+                />
+              </div>
+              <div className="intake-actions">
+                <Button disabled={loading} type="submit">
+                  {loading ? 'Processing' : 'Process request'}
+                </Button>
+                <span>{response ? `${response.summary.latency_ms} ms` : 'Line-oriented deterministic parser'}</span>
+              </div>
+              <div className="example-row" aria-label="Demo request presets">
+                {presets.map((preset) => (
+                  <Button key={preset.label} onClick={() => choosePreset(preset.value)} variant="secondary">
+                    {preset.label}
                   </Button>
-                  <span>{response ? `${response.summary.latency_ms} ms` : 'Line-oriented deterministic parser'}</span>
-                </div>
-                <div className="example-row" aria-label="Demo request presets">
-                  {presets.map((preset) => (
-                    <Button key={preset.label} onClick={() => choosePreset(preset.value)} variant="secondary">
-                      {preset.label}
-                    </Button>
-                  ))}
-                </div>
-              </form>
-            </Panel>
-          </LiquidGlass>
+                ))}
+              </div>
+            </form>
+          </Panel>
 
           {error && (
             <div className="alert">
