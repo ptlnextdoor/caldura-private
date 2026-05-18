@@ -30,6 +30,11 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. The Vite dev server proxies `/api/*` to the Rust server on `127.0.0.1:8080`.
 
+Both API implementations require an OIDC/JWT bearer token for `/search` and `/customers`.
+Configure `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_JWKS_URL`, and `AUTH_CUSTOMER_CLAIM` on
+the API side. Configure `VITE_OIDC_AUTHORITY`, `VITE_OIDC_CLIENT_ID`, and
+`VITE_OIDC_REDIRECT_URI` for the SPA.
+
 ## API
 
 `POST /search`
@@ -37,11 +42,11 @@ Open `http://127.0.0.1:5173`. The Vite dev server proxies `/api/*` to the Rust s
 ```json
 {
   "query": "M8 flat washer",
-  "customer_id": "CUST-001"
+  "use_personalization": true
 }
 ```
 
-`GET /customers` returns searchable customer options with profile summaries.
+`GET /customers` returns only the authenticated customer's profile summary.
 
 `GET /health` returns server status and catalog size.
 
@@ -49,11 +54,22 @@ Repair-context searches include an optional `repair_context` object with the det
 
 Each result preserves the raw internal `score` for debugging, adds normalized `model_closeness` in the `0..1` range, and exposes calibrated `confidence` in the `0..1` range. The top-level `decision` is `ready-to-order` only when the top confidence is at least `0.90` and no ambiguity/safety blocker applies; otherwise it returns `sales-review` or `guidance-only`.
 
+The response also includes risk-control evidence on each result: `match_evidence`, `review_reasons`, `contradictions`, and `can_auto_order`. These fields separate retrieval similarity from order safety so close alternatives, missing length, material/finish mismatch, thread mismatch, and proprietary repair requests can route to review instead of becoming confidently wrong orders.
+
+Customer personalization is authorization-bound. The public API no longer accepts a caller-chosen
+`customer_id`; it derives the customer from the validated token claim and ignores any stray
+`customer_id` field in the request body.
+
 ## Verification
 
 ```bash
 cargo test
+npm run test:api
 cd frontend && npm run build
+cd frontend && npm audit
+cd frontend && npm audit --omit=dev
 ```
 
 Current tests cover CSV loading, parser extraction on shorthand examples, parser coverage over all 1000 catalog rows, base search ranking, and personalization on a reference query.
+
+`data/hard_negative_cases.json` tracks adversarial near-miss cases for the next calibration pass.

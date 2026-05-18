@@ -20,7 +20,7 @@ const steps = [
   {
     icon: <Gauge size={20} />,
     title: 'Explain confidence',
-    copy: 'Confidence is the trust gate. At 90% or higher the app can mark the top result ready to order; below that it routes to sales review.',
+    copy: 'Confidence is the trust gate. At 90% or higher the top result can be ready to order only if contradiction checks find no blockers.',
   },
 ];
 
@@ -54,7 +54,8 @@ export function MethodPage() {
           <DataRow label="Parser behavior" value="Soft boosts, never hard filters" />
           <DataRow label="Personalization" value="Capped additive ranking bias" />
           <DataRow label="Model closeness" value="Normalized rank strength, not a guarantee" />
-          <DataRow label="Confidence" value="Order automation gate" />
+          <DataRow label="Contradictions" value="Thread/type blocks, material/finish review" />
+          <DataRow label="Confidence" value="Order automation gate after risk checks" />
           <DataRow label="Storage" value="CSV loaded into memory at boot" />
         </Panel>
         <Panel kicker="Out of scope" title="What stayed out">

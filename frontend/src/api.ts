@@ -37,6 +37,15 @@ export type SearchResult = {
   };
   personalized: boolean;
   personalization_note: string | null;
+  match_evidence: string[];
+  review_reasons: string[];
+  contradictions: Array<{
+    field: string;
+    query_value: string;
+    result_value: string;
+    severity: 'hard' | 'soft';
+  }>;
+  can_auto_order: boolean;
 };
 
 export type SearchDecision = 'ready-to-order' | 'sales-review' | 'guidance-only';
@@ -84,19 +93,30 @@ export type SearchResponse = {
   repair_context: RepairContext | null;
 };
 
-export async function fetchCustomers(): Promise<Customer[]> {
-  const response = await fetch('/api/customers');
+function authHeaders(accessToken: string) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+  };
+}
+
+export async function fetchCustomers(accessToken: string): Promise<Customer[]> {
+  const response = await fetch('/api/customers', {
+    headers: authHeaders(accessToken),
+  });
   if (!response.ok) {
     throw new Error('Failed to load customers');
   }
   return response.json();
 }
 
-export async function searchCatalog(query: string, customerId?: string): Promise<SearchResponse> {
+export async function searchCatalog(
+  query: string,
+  options: { accessToken: string; usePersonalization?: boolean },
+): Promise<SearchResponse> {
   const response = await fetch('/api/search', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, customer_id: customerId || null }),
+    headers: { 'Content-Type': 'application/json', ...authHeaders(options.accessToken) },
+    body: JSON.stringify({ query, use_personalization: options.usePersonalization ?? true }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

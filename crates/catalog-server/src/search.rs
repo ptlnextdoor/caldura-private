@@ -48,6 +48,10 @@ pub struct SearchResult {
     pub attribute_matches: AttributeMatches,
     pub personalized: bool,
     pub personalization_note: Option<String>,
+    pub match_evidence: Vec<String>,
+    pub review_reasons: Vec<String>,
+    pub contradictions: Vec<Contradiction>,
+    pub can_auto_order: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,6 +62,23 @@ pub struct AttributeMatches {
     pub length: bool,
     pub material: bool,
     pub finish: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Contradiction {
+    pub field: &'static str,
+    pub query_value: String,
+    pub result_value: String,
+    pub severity: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct EvidenceAnalysis {
+    match_evidence: Vec<String>,
+    review_reasons: Vec<String>,
+    contradictions: Vec<Contradiction>,
+    has_hard_contradiction: bool,
+    has_soft_contradiction: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,14 +130,8 @@ impl Matcher {
         }
     }
 
-    pub fn customers(&self) -> Vec<CustomerSummary> {
-        let mut customers = self
-            .profiles
-            .values()
-            .map(CustomerProfile::summary)
-            .collect::<Vec<_>>();
-        customers.sort_by(|a, b| a.id.cmp(&b.id));
-        customers
+    pub fn customer(&self, customer_id: &str) -> Option<CustomerSummary> {
+        self.profiles.get(customer_id).map(CustomerProfile::summary)
     }
 
     pub fn search(&self, query: &str, customer_id: Option<&str>) -> SearchResponse {
@@ -230,6 +245,18 @@ impl Matcher {
         let safety_blocked = repair_context
             .as_ref()
             .is_some_and(|context| !matches!(context.safety_class, SafetyClass::Low));
+        let top_has_hard_contradiction = candidates.first().is_some_and(|candidate| {
+            analyze_evidence(
+                &parsed,
+                &self.parsed_catalog[candidate.idx],
+                &candidate.matches,
+                candidate.personalization_note.as_deref(),
+                repair_context.as_ref(),
+                top_gap,
+                top_prior_sku_reference,
+            )
+            .has_hard_contradiction
+        });
 
         let results = candidates
             .iter()
@@ -237,7 +264,16 @@ impl Matcher {
             .enumerate()
             .map(|(rank, candidate)| {
                 let row = &self.catalog[candidate.idx];
-                let confidence = confidence(
+                let analysis = analyze_evidence(
+                    &parsed,
+                    &self.parsed_catalog[candidate.idx],
+                    &candidate.matches,
+                    candidate.personalization_note.as_deref(),
+                    repair_context.as_ref(),
+                    top_gap,
+                    top_prior_sku_reference,
+                );
+                let mut confidence = confidence(
                     candidate.final_score,
                     top_score,
                     top_gap,
@@ -245,6 +281,16 @@ impl Matcher {
                     candidate.attr_score,
                     reference_query && candidate.personalization_note.as_deref() == Some("matches previously ordered SKU"),
                 );
+                if analysis.has_hard_contradiction {
+                    confidence = confidence.min(0.40);
+                } else if analysis.has_soft_contradiction {
+                    confidence = confidence.min(0.82);
+                }
+                let can_auto_order = rank == 0
+                    && confidence >= 0.90
+                    && !analysis.has_hard_contradiction
+                    && !safety_blocked
+                    && (!ambiguous_query || top_prior_sku_reference);
                 SearchResult {
                     rank: rank + 1,
                     sku: row.sku.clone(),
@@ -258,6 +304,10 @@ impl Matcher {
                     attribute_matches: candidate.matches.clone(),
                     personalized: candidate.personalized,
                     personalization_note: candidate.personalization_note.clone(),
+                    match_evidence: analysis.match_evidence,
+                    review_reasons: analysis.review_reasons,
+                    contradictions: analysis.contradictions,
+                    can_auto_order,
                 }
             })
             .collect::<Vec<_>>();
@@ -266,6 +316,11 @@ impl Matcher {
             ambiguous_query,
             safety_blocked,
             top_prior_sku_reference,
+            top_has_hard_contradiction,
+            results
+                .first()
+                .map(|result| result.can_auto_order)
+                .unwrap_or(false),
         );
 
         let suggestions = if ambiguous_query || low_confidence_overall {
@@ -452,12 +507,197 @@ fn decision_for(
     ambiguous_query: bool,
     safety_blocked: bool,
     top_prior_sku_reference: bool,
+    top_has_hard_contradiction: bool,
+    top_can_auto_order: bool,
 ) -> &'static str {
-    if confidence >= 0.90 && (!ambiguous_query || top_prior_sku_reference) && !safety_blocked {
+    if top_can_auto_order
+        && confidence >= 0.90
+        && (!ambiguous_query || top_prior_sku_reference)
+        && !safety_blocked
+        && !top_has_hard_contradiction
+    {
         "ready-to-order"
     } else {
         "sales-review"
     }
+}
+
+fn analyze_evidence(
+    query: &AttrSpec,
+    candidate: &AttrSpec,
+    matches: &AttributeMatches,
+    personalization_note: Option<&str>,
+    repair_context: Option<&ResolvedRepairContext>,
+    top_gap: f32,
+    top_prior_sku_reference: bool,
+) -> EvidenceAnalysis {
+    let mut match_evidence = Vec::new();
+    let mut review_reasons = Vec::new();
+    let mut contradictions = Vec::new();
+
+    if let Some(value) = query.thread_spec.as_deref() {
+        if matches.thread {
+            match_evidence.push(format!("Thread {value} matched"));
+        } else {
+            contradictions.push(contradiction(
+                "thread",
+                value,
+                candidate.thread_spec.as_deref().unwrap_or("missing"),
+                "hard",
+            ));
+            review_reasons.push("Thread mismatch blocks auto-order".to_string());
+        }
+    }
+    if query.thread_spec.is_some()
+        && candidate.thread_spec.is_some()
+        && thread_system(query.thread_spec.as_deref()) != thread_system(candidate.thread_spec.as_deref())
+    {
+        contradictions.push(contradiction(
+            "thread_system",
+            thread_system(query.thread_spec.as_deref()).unwrap_or("unknown"),
+            thread_system(candidate.thread_spec.as_deref()).unwrap_or("unknown"),
+            "hard",
+        ));
+        review_reasons.push("Metric/imperial thread system conflict".to_string());
+    }
+    if let Some(value) = query.product_type {
+        if matches.product_type {
+            match_evidence.push(format!("Type {} matched", display_enum(value.as_str())));
+        } else {
+            contradictions.push(contradiction(
+                "type",
+                value.as_str(),
+                candidate
+                    .product_type
+                    .map(|candidate| candidate.as_str())
+                    .unwrap_or("missing"),
+                "hard",
+            ));
+            review_reasons.push("Product type mismatch blocks auto-order".to_string());
+        }
+    }
+    if query.length_mm.is_some() {
+        if matches.length {
+            match_evidence.push("Length matched".to_string());
+        } else {
+            contradictions.push(contradiction(
+                "length",
+                query.length_raw.as_deref().unwrap_or("specified"),
+                candidate.length_raw.as_deref().unwrap_or("missing"),
+                "soft",
+            ));
+            review_reasons.push("Length needs verification".to_string());
+        }
+    }
+    if let Some(value) = query.material {
+        if matches.material {
+            match_evidence.push(format!("Material {} matched", display_enum(value.as_str())));
+        } else {
+            contradictions.push(contradiction(
+                "material",
+                value.as_str(),
+                candidate
+                    .material
+                    .map(|candidate| candidate.as_str())
+                    .unwrap_or("missing"),
+                "soft",
+            ));
+            review_reasons.push("Material mismatch needs review".to_string());
+        }
+    }
+    if let Some(value) = query.finish {
+        if matches.finish {
+            match_evidence.push(format!("Finish {} matched", display_enum(value.as_str())));
+        } else {
+            contradictions.push(contradiction(
+                "finish",
+                value.as_str(),
+                candidate
+                    .finish
+                    .map(|candidate| candidate.as_str())
+                    .unwrap_or("missing"),
+                "soft",
+            ));
+            review_reasons.push("Finish mismatch needs review".to_string());
+        }
+    }
+    if let Some(note) = personalization_note {
+        match_evidence.push(match note {
+            "matches previously ordered SKU" => "Previous customer SKU matched".to_string(),
+            "matches usual product family" => "Customer history supports product family".to_string(),
+            _ => note.to_string(),
+        });
+    }
+    if top_gap < 0.06 && !top_prior_sku_reference {
+        review_reasons.push("Close alternatives need review".to_string());
+    }
+    if let Some(context) = repair_context {
+        if matches!(context.safety_class, SafetyClass::Blocked | SafetyClass::Caution) {
+            review_reasons.push("Repair context needs human verification".to_string());
+        }
+        if matches!(context.match_behavior, MatchBehavior::GuidanceOnly) {
+            contradictions.push(contradiction(
+                "fitment",
+                "model-specific repair",
+                "no verified stocked fitment",
+                "hard",
+            ));
+            review_reasons.push("Model-specific repair needs fitment evidence".to_string());
+        }
+    }
+
+    match_evidence.sort();
+    match_evidence.dedup();
+    review_reasons.sort();
+    review_reasons.dedup();
+    contradictions.dedup_by(|left, right| {
+        left.field == right.field
+            && left.query_value == right.query_value
+            && left.result_value == right.result_value
+            && left.severity == right.severity
+    });
+
+    let has_hard_contradiction = contradictions
+        .iter()
+        .any(|contradiction| contradiction.severity == "hard");
+    let has_soft_contradiction = contradictions
+        .iter()
+        .any(|contradiction| contradiction.severity == "soft");
+
+    EvidenceAnalysis {
+        match_evidence,
+        review_reasons,
+        contradictions,
+        has_hard_contradiction,
+        has_soft_contradiction,
+    }
+}
+
+fn contradiction(
+    field: &'static str,
+    query_value: impl Into<String>,
+    result_value: impl Into<String>,
+    severity: &'static str,
+) -> Contradiction {
+    Contradiction {
+        field,
+        query_value: query_value.into(),
+        result_value: result_value.into(),
+        severity,
+    }
+}
+
+fn thread_system(thread: Option<&str>) -> Option<&'static str> {
+    let thread = thread?;
+    if thread.to_ascii_lowercase().starts_with('m') {
+        Some("metric")
+    } else {
+        Some("imperial")
+    }
+}
+
+fn display_enum(value: &str) -> String {
+    value.replace('-', " ")
 }
 
 fn build_suggestions(parsed: &AttrSpec) -> Option<Vec<Suggestion>> {
@@ -662,6 +902,9 @@ mod tests {
         assert!(top.score <= 1.25);
         assert!((0.0..=1.0).contains(&top.model_closeness));
         assert!((0.90..=1.0).contains(&top.confidence));
+        assert!(top.match_evidence.iter().any(|item| item == "Thread M8 matched"));
+        assert!(top.match_evidence.iter().any(|item| item == "Type flat washer matched"));
+        assert!(top.contradictions.is_empty());
     }
 
     #[test]
@@ -674,6 +917,8 @@ mod tests {
         let top = response.results.first().unwrap();
         assert!(top.personalized);
         assert!(top.confidence >= 0.90);
+        assert!(top.can_auto_order);
+        assert!(response.results.iter().skip(1).all(|result| !result.can_auto_order));
     }
 
     #[test]
@@ -686,6 +931,48 @@ mod tests {
         let top = response.results.first().unwrap();
         assert!(top.confidence < 0.90);
         assert_eq!(response.decision, "sales-review");
+    }
+
+    #[test]
+    fn hard_thread_contradiction_caps_confidence() {
+        let query = parse_query("M8 flat washer");
+        let candidate = parse_catalog_row("M6-1.0 FLAT WASHER STEEL PLAIN");
+        let (_, matches) = attribute_score(&query, &candidate);
+        let analysis = analyze_evidence(&query, &candidate, &matches, None, None, 0.20, false);
+        assert!(analysis.has_hard_contradiction);
+        assert!(analysis
+            .contradictions
+            .iter()
+            .any(|item| item.field == "thread" && item.severity == "hard"));
+        let capped = confidence(1.0, 1.0, 0.2, 0.72, 0.5, false).min(0.40);
+        assert!(capped <= 0.40);
+    }
+
+    #[test]
+    fn material_mismatch_is_soft_review_reason() {
+        let query = parse_query("M8 brass flat washer");
+        let candidate = parse_catalog_row("M8-1.25 FLAT WASHER STEEL YELLOW ZINC");
+        let (_, matches) = attribute_score(&query, &candidate);
+        let analysis = analyze_evidence(&query, &candidate, &matches, None, None, 0.20, false);
+        assert!(!analysis.has_hard_contradiction);
+        assert!(analysis.has_soft_contradiction);
+        assert!(analysis
+            .review_reasons
+            .iter()
+            .any(|item| item == "Material mismatch needs review"));
+    }
+
+    #[test]
+    fn length_missing_is_soft_review_reason() {
+        let query = parse_query("M8 x 10mm flat washer");
+        let candidate = parse_catalog_row("M8-1.25 FLAT WASHER STEEL YELLOW ZINC");
+        let (_, matches) = attribute_score(&query, &candidate);
+        let analysis = analyze_evidence(&query, &candidate, &matches, None, None, 0.20, false);
+        assert!(analysis.has_soft_contradiction);
+        assert!(analysis
+            .contradictions
+            .iter()
+            .any(|item| item.field == "length" && item.severity == "soft"));
     }
 
     #[test]

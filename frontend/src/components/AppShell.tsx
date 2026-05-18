@@ -1,4 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../auth';
+import { Button } from './ui/primitives';
 
 function LogoMark() {
   return (
@@ -24,6 +26,9 @@ export function FlowingLines() {
 }
 
 export function AppShell() {
+  const auth = useAuth();
+  const label = auth.user?.profile.name ?? auth.user?.profile.email ?? 'Signed in';
+
   return (
     <>
       <FlowingLines />
@@ -39,6 +44,20 @@ export function AppShell() {
             </NavLink>
             <NavLink to="/customers">Customers</NavLink>
             <NavLink to="/method">Method</NavLink>
+          </div>
+          <div className="auth-actions">
+            {auth.accessToken ? (
+              <>
+                <span>{label}</span>
+                <Button onClick={() => void auth.signOut()} variant="ghost">
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <Button disabled={!auth.configured || auth.loading} onClick={() => void auth.signIn()} variant="ghost">
+                Sign in
+              </Button>
+            )}
           </div>
         </div>
       </nav>

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "cd frontend && npm ci && npm run build"
+    "build": "cd frontend && npm ci && npm run build",
+    "test:api": "node --test api/**/*.test.js"
   }
 }

@@ -70,7 +70,11 @@ export function customers() {
     }));
 }
 
-export function searchCatalog(query, customerId) {
+export function customerSummary(customerId) {
+  return customers().find((customer) => customer.id === customerId) ?? null;
+}
+
+export function searchCatalog(query, customerId = null) {
   const started = performance.now();
   const { catalog, parsedCatalog, profiles, index } = getData();
   const repair_context = resolveRepairContext(query);
@@ -143,6 +147,15 @@ export function searchCatalog(query, customerId) {
 
   const results = candidates.slice(0, 3).map((candidate, index) => {
     const row = catalog[candidate.docId];
+    const analysis = analyzeEvidence(
+      parsed,
+      parsedCatalog[candidate.docId],
+      candidate.matches,
+      candidate.personalization_note,
+      repair_context,
+      topGap,
+      topPriorSkuReference,
+    );
     const conf = confidence(
       candidate.finalScore,
       topScore,
@@ -151,6 +164,16 @@ export function searchCatalog(query, customerId) {
       candidate.attrScore,
       referenceQuery && candidate.personalization_note === 'matches previously ordered SKU',
     );
+    const cappedConfidence = analysis.hasHardContradiction
+      ? Math.min(conf, 0.40)
+      : analysis.hasSoftContradiction
+        ? Math.min(conf, 0.82)
+        : conf;
+    const canAutoOrder = index === 0
+      && cappedConfidence >= 0.90
+      && !analysis.hasHardContradiction
+      && !safetyBlocked
+      && (!ambiguous_query || topPriorSkuReference);
     return {
       rank: index + 1,
       sku: row.sku,
@@ -159,11 +182,15 @@ export function searchCatalog(query, customerId) {
       active: row.active,
       score: round3(candidate.finalScore),
       model_closeness: round3(modelCloseness(candidate.finalScore)),
-      confidence: round3(conf),
-      confidence_label: confidenceLabel(conf),
+      confidence: round3(cappedConfidence),
+      confidence_label: confidenceLabel(cappedConfidence),
       attribute_matches: candidate.matches,
       personalized: candidate.personalized,
       personalization_note: candidate.personalization_note,
+      match_evidence: analysis.matchEvidence,
+      review_reasons: analysis.reviewReasons,
+      contradictions: analysis.contradictions,
+      can_auto_order: canAutoOrder,
     };
   });
 
@@ -179,7 +206,14 @@ export function searchCatalog(query, customerId) {
       no_verified_stocked_match: false,
       result_message: null,
     },
-    decision: decisionFor(results[0]?.confidence ?? 0, ambiguous_query, Boolean(safetyBlocked), topPriorSkuReference),
+    decision: decisionFor(
+      results[0]?.confidence ?? 0,
+      ambiguous_query,
+      Boolean(safetyBlocked),
+      topPriorSkuReference,
+      Boolean(results[0]?.contradictions?.some((item) => item.severity === 'hard')),
+      Boolean(results[0]?.can_auto_order),
+    ),
     repair_context,
   };
 }
@@ -327,7 +361,7 @@ function parseText(text) {
     raw_tokens_unconsumed: [],
   };
 
-  let match = normalized.match(/\bm\s?(\d+(?:\.\d+)?)(?:[-\s](\d+(?:\.\d+)?))?\b/);
+  let match = normalized.match(/\bm\s?(\d+(?:\.\d+)?)(?:[-\s](\d+\.\d+))?\b/);
   if (match) {
     spec.thread_spec = `M${trimNumber(match[1])}${match[2] ? `-${trimNumber(match[2])}` : ''}`;
     spec.thread_size_normalized = Number(match[1]);
@@ -581,8 +615,121 @@ function confidenceLabel(value) {
   return 'low';
 }
 
-function decisionFor(confidence, ambiguousQuery, safetyBlocked, topPriorSkuReference) {
-  return confidence >= 0.90 && (!ambiguousQuery || topPriorSkuReference) && !safetyBlocked ? 'ready-to-order' : 'sales-review';
+function decisionFor(confidence, ambiguousQuery, safetyBlocked, topPriorSkuReference, topHasHardContradiction, topCanAutoOrder) {
+  return topCanAutoOrder
+    && confidence >= 0.90
+    && (!ambiguousQuery || topPriorSkuReference)
+    && !safetyBlocked
+    && !topHasHardContradiction
+    ? 'ready-to-order'
+    : 'sales-review';
+}
+
+function analyzeEvidence(query, candidate, matches, personalizationNote, repairContext, topGap, topPriorSkuReference) {
+  const matchEvidence = [];
+  const reviewReasons = [];
+  const contradictions = [];
+
+  if (query.thread_spec) {
+    if (matches.thread) {
+      matchEvidence.push(`Thread ${query.thread_spec} matched`);
+    } else {
+      contradictions.push(contradiction('thread', query.thread_spec, candidate.thread_spec ?? 'missing', 'hard'));
+      reviewReasons.push('Thread mismatch blocks auto-order');
+    }
+  }
+  if (
+    query.thread_spec &&
+    candidate.thread_spec &&
+    threadSystem(query.thread_spec) !== threadSystem(candidate.thread_spec)
+  ) {
+    contradictions.push(contradiction('thread_system', threadSystem(query.thread_spec) ?? 'unknown', threadSystem(candidate.thread_spec) ?? 'unknown', 'hard'));
+    reviewReasons.push('Metric/imperial thread system conflict');
+  }
+  if (query.product_type) {
+    if (matches.product_type) {
+      matchEvidence.push(`Type ${displayValue(query.product_type)} matched`);
+    } else {
+      contradictions.push(contradiction('type', query.product_type, candidate.product_type ?? 'missing', 'hard'));
+      reviewReasons.push('Product type mismatch blocks auto-order');
+    }
+  }
+  if (query.length_mm != null) {
+    if (matches.length) {
+      matchEvidence.push('Length matched');
+    } else {
+      contradictions.push(contradiction('length', query.length_raw ?? 'specified', candidate.length_raw ?? 'missing', 'soft'));
+      reviewReasons.push('Length needs verification');
+    }
+  }
+  if (query.material) {
+    if (matches.material) {
+      matchEvidence.push(`Material ${displayValue(query.material)} matched`);
+    } else {
+      contradictions.push(contradiction('material', query.material, candidate.material ?? 'missing', 'soft'));
+      reviewReasons.push('Material mismatch needs review');
+    }
+  }
+  if (query.finish) {
+    if (matches.finish) {
+      matchEvidence.push(`Finish ${displayValue(query.finish)} matched`);
+    } else {
+      contradictions.push(contradiction('finish', query.finish, candidate.finish ?? 'missing', 'soft'));
+      reviewReasons.push('Finish mismatch needs review');
+    }
+  }
+  if (personalizationNote === 'matches previously ordered SKU') {
+    matchEvidence.push('Previous customer SKU matched');
+  } else if (personalizationNote === 'matches usual product family') {
+    matchEvidence.push('Customer history supports product family');
+  } else if (personalizationNote) {
+    matchEvidence.push(personalizationNote);
+  }
+  if (topGap < 0.06 && !topPriorSkuReference) {
+    reviewReasons.push('Close alternatives need review');
+  }
+  if (repairContext?.safety_class && repairContext.safety_class !== 'low') {
+    reviewReasons.push('Repair context needs human verification');
+  }
+  if (repairContext?.match_behavior === 'guidance-only') {
+    contradictions.push(contradiction('fitment', 'model-specific repair', 'no verified stocked fitment', 'hard'));
+    reviewReasons.push('Model-specific repair needs fitment evidence');
+  }
+
+  const dedup = (items) => [...new Set(items)].sort();
+  const uniqueContradictions = [];
+  const seen = new Set();
+  for (const item of contradictions) {
+    const key = `${item.field}|${item.query_value}|${item.result_value}|${item.severity}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueContradictions.push(item);
+  }
+  return {
+    matchEvidence: dedup(matchEvidence),
+    reviewReasons: dedup(reviewReasons),
+    contradictions: uniqueContradictions,
+    hasHardContradiction: uniqueContradictions.some((item) => item.severity === 'hard'),
+    hasSoftContradiction: uniqueContradictions.some((item) => item.severity === 'soft'),
+  };
+}
+
+function contradiction(field, queryValue, resultValue, severity) {
+  return {
+    field,
+    query_value: String(queryValue),
+    result_value: String(resultValue),
+    severity,
+  };
+}
+
+function threadSystem(thread) {
+  if (!thread) return null;
+  return String(thread).toLowerCase().startsWith('m') ? 'metric' : 'imperial';
+}
+
+function displayValue(value) {
+  return String(value).replace(/-/g, ' ');
 }
 
 function suggestions(parsed) {

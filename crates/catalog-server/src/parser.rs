@@ -4,7 +4,7 @@ use regex::Regex;
 use std::collections::HashSet;
 
 static METRIC_THREAD: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\bm\s?(\d+(?:\.\d+)?)(?:[-\s](\d+(?:\.\d+)?))?\b").unwrap());
+    Lazy::new(|| Regex::new(r"\bm\s?(\d+(?:\.\d+)?)(?:[-\s](\d+\.\d+))?\b").unwrap());
 static IMPERIAL_THREAD: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\d+/\d+)-(\d+)\b").unwrap());
 static NUMBERED_THREAD: Lazy<Regex> = Lazy::new(|| Regex::new(r"#\s?(\d+)-(\d+)").unwrap());
 static BARE_FRACTION: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\d+/\d+)\b").unwrap());
