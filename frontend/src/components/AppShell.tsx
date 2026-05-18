@@ -59,9 +59,13 @@ export function AppShell() {
                 </Button>
               </>
             ) : !demoMode ? (
-              <Button disabled={!auth.configured || auth.loading} onClick={() => void auth.signIn()} variant="ghost">
-                Sign in
-              </Button>
+              auth.configured ? (
+                <Button disabled={auth.loading} onClick={() => void auth.signIn()} variant="ghost">
+                  Sign in
+                </Button>
+              ) : (
+                <span className="auth-unconfigured">Auth not configured</span>
+              )
             ) : null}
           </div>
         </div>
