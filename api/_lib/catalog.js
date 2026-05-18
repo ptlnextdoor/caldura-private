@@ -70,7 +70,11 @@ export function customers() {
     }));
 }
 
-export function searchCatalog(query, customerId) {
+export function customerSummary(customerId) {
+  return customers().find((customer) => customer.id === customerId) ?? null;
+}
+
+export function searchCatalog(query, customerId = null) {
   const started = performance.now();
   const { catalog, parsedCatalog, profiles, index } = getData();
   const repair_context = resolveRepairContext(query);

@@ -18,6 +18,11 @@ The matcher now emits explicit evidence and contradiction reasons per result. Ha
 
 Customer history applies a bounded additive bias, capped at `0.22`. The bias prefers previously ordered SKUs, common product families, usual material/finish, and familiar thread sizes. Reference-style queries like "same washers as last time" weight prior SKUs and usual product family more heavily.
 
+Customer history is scoped by authentication. `/search` and `/customers` require a bearer JWT,
+validate issuer/audience/signature against JWKS, and derive the customer from the configured token
+claim. The client may opt out of personalization with `use_personalization: false`, but it cannot
+select another customer by ID.
+
 ## Repair context
 
 Repair-context search is a seeded deterministic layer in front of the matcher. It maps human job language like "boat hatch screws rusted from saltwater" to a canonical catalog query when the request is appropriate for stocked generic hardware, then exposes the assumptions, missing facts, warnings, kit idea, and provenance in the response. It does not call an LLM and does not claim verified fitment unless the seed data explicitly says so.
@@ -26,7 +31,7 @@ Proprietary/model-specific contexts use a separate guidance-only behavior. For e
 
 ## Scope
 
-The app intentionally avoids vector databases, embeddings, WebSockets, Docker, auth, and external LLM calls. The catalog has only 1000 rows, so a boot-loaded `Vec` plus `HashMap` indices gives predictable latency and a simpler interview explanation.
+The app intentionally avoids vector databases, embeddings, WebSockets, Docker, and external LLM calls. The catalog has only 1000 rows, so a boot-loaded `Vec` plus `HashMap` indices gives predictable latency and a simpler interview explanation.
 
 ## Known Tradeoffs
 

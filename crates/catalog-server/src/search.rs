@@ -130,14 +130,8 @@ impl Matcher {
         }
     }
 
-    pub fn customers(&self) -> Vec<CustomerSummary> {
-        let mut customers = self
-            .profiles
-            .values()
-            .map(CustomerProfile::summary)
-            .collect::<Vec<_>>();
-        customers.sort_by(|a, b| a.id.cmp(&b.id));
-        customers
+    pub fn customer(&self, customer_id: &str) -> Option<CustomerSummary> {
+        self.profiles.get(customer_id).map(CustomerProfile::summary)
     }
 
     pub fn search(&self, query: &str, customer_id: Option<&str>) -> SearchResponse {
