@@ -3,6 +3,7 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import customersHandler from '../customers.js';
+import evalHandler from '../eval.js';
 import searchHandler from '../search.js';
 import { searchCatalog } from './catalog.js';
 
@@ -31,6 +32,8 @@ before(async () => {
   process.env.AUTH_AUDIENCE = AUDIENCE;
   process.env.AUTH_JWKS_URL = jwksUrl;
   process.env.AUTH_CUSTOMER_CLAIM = 'customer_id';
+  process.env.APP_ENV = 'development';
+  process.env.DEMO_MODE = 'false';
 });
 
 after(async () => {
@@ -116,6 +119,63 @@ test('customers returns only authenticated customer', async () => {
   assert.equal(response.body[0].id, 'CUST-001');
 });
 
+test('demo mode defaults off when DEMO_MODE is unset', async () => {
+  await withEnv({ APP_ENV: 'demo', DEMO_MODE: undefined }, async () => {
+    const customersResponse = await invoke(customersHandler, { method: 'GET' });
+    assert.equal(customersResponse.statusCode, 401);
+
+    const searchResponse = await invoke(searchHandler, {
+      body: { query: 'M8 flat washer' },
+    });
+    assert.equal(searchResponse.statusCode, 401);
+  });
+});
+
+test('production app env blocks demo mode even when requested', async () => {
+  await withEnv({ APP_ENV: 'production', DEMO_MODE: 'true' }, async () => {
+    const customersResponse = await invoke(customersHandler, { method: 'GET' });
+    assert.equal(customersResponse.statusCode, 401);
+
+    const searchResponse = await invoke(searchHandler, {
+      body: { query: 'M8 flat washer', customer_id: 'CUST-001' },
+    });
+    assert.equal(searchResponse.statusCode, 401);
+  });
+});
+
+test('demo mode returns all customers and uses selected customer without auth', async () => {
+  await withEnv({ APP_ENV: 'demo', DEMO_MODE: 'true' }, async () => {
+    const customersResponse = await invoke(customersHandler, { method: 'GET' });
+    assert.equal(customersResponse.statusCode, 200);
+    assert.equal(customersResponse.body.length, 5);
+
+    const searchResponse = await invoke(searchHandler, {
+      body: {
+        query: 'same washers as last time',
+        customer_id: 'CUST-001',
+        use_personalization: true,
+      },
+    });
+    assert.equal(searchResponse.statusCode, 200);
+    assert.equal(searchResponse.body.results[0].personalized, true);
+  });
+});
+
+test('eval endpoint is disabled outside demo mode', async () => {
+  const response = await invoke(evalHandler, { method: 'GET' });
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.body.code, 'diagnostics_disabled');
+});
+
+test('eval endpoint returns deterministic diagnostics in explicit demo mode', async () => {
+  await withEnv({ APP_ENV: 'demo', DEMO_MODE: 'true' }, async () => {
+    const response = await invoke(evalHandler, { method: 'GET' });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.total_cases, 7);
+    assert.equal(response.body.global_accuracy, 1);
+  });
+});
+
 async function invoke(handler, { method = 'POST', token: bearer, body = {} } = {}) {
   const response = mockResponse();
   await handler({
@@ -163,4 +223,28 @@ function token(overrides) {
 function base64Url(value) {
   return Buffer.from(value)
     .toString('base64url');
+}
+
+async function withEnv(values, callback) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }

@@ -40,9 +40,10 @@ export function AppShell() {
           </NavLink>
           <div className="nav-links">
             <NavLink to="/" end>
-              Search
+              Validate
             </NavLink>
             <NavLink to="/customers">Customers</NavLink>
+            <NavLink to="/eval">Eval</NavLink>
             <NavLink to="/method">Method</NavLink>
           </div>
           <div className="auth-actions">

@@ -4,6 +4,9 @@ import { UserRound } from 'lucide-react';
 import { AuthRequired, useAuth } from '../auth';
 import { fetchCustomers, type Customer } from '../api';
 import { DataRow, MetricBadge, PageSection, Panel } from '../components/ui/primitives';
+import { isDemoMode } from '../env';
+
+const demoMode = isDemoMode();
 
 export function CustomersPage() {
   const auth = useAuth();
@@ -11,15 +14,15 @@ export function CustomersPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.accessToken) return;
-    fetchCustomers(auth.accessToken)
+    if (!demoMode && !auth.accessToken) return;
+    fetchCustomers(demoMode ? null : auth.accessToken)
       .then(setCustomers)
       .catch((err: Error) => setError(err.message));
   }, [auth.accessToken]);
 
   const selected = customers[0];
 
-  if (auth.loading) {
+  if (!demoMode && auth.loading) {
     return (
       <PageSection className="customers-page" kicker="Authentication" title="Checking session.">
         <Panel>
@@ -29,7 +32,7 @@ export function CustomersPage() {
     );
   }
 
-  if (!auth.accessToken) {
+  if (!demoMode && !auth.accessToken) {
     return (
       <PageSection
         className="customers-page"
@@ -50,17 +53,18 @@ export function CustomersPage() {
       title="Your customer history as a ranking signal."
     >
       <div className="hero-meta">
-        <MetricBadge label="Authorized profile" value={selected?.id ?? 'Loading'} />
+        <MetricBadge label={demoMode ? 'Demo profiles' : 'Authorized profile'} value={demoMode ? String(customers.length || 'Loading') : selected?.id ?? 'Loading'} />
         <MetricBadge label="Signal" value="Orders + SKU history" tone="green" />
         <MetricBadge label="Bias" value="Bounded additive" tone="muted" />
       </div>
 
       <section className="two-column-page">
-        <Panel className="customer-directory" kicker="Access scope" title="Only your profile is returned">
+        <Panel className="customer-directory" kicker="Access scope" title={demoMode ? 'Demo directory' : 'Only your profile is returned'}>
           {error && <p className="error-copy">{error}</p>}
           <p className="empty-copy">
-            The API no longer exposes a cross-customer directory. Search requests derive the
-            customer context from your validated access token.
+            {demoMode
+              ? 'Demo mode exposes the seeded customer directory so the stretch dropdown can be exercised without OIDC.'
+              : 'The API no longer exposes a cross-customer directory. Search requests derive the customer context from your validated access token.'}
           </p>
         </Panel>
 

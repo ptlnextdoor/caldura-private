@@ -1,13 +1,13 @@
 use crate::{
     parser::{parse_catalog_row, parse_query, thread_matches, tokens},
-    profile::{build_profiles, CustomerProfile, CustomerSummary},
+    profile::{build_profiles, CustomerPreference, CustomerProfile, CustomerSummary},
     repair::{resolve_repair_context, MatchBehavior, ResolvedRepairContext, SafetyClass},
     types::{AttrSpec, CatalogRow, OrderRow},
 };
 use serde::Serialize;
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     time::Instant,
 };
 
@@ -25,6 +25,8 @@ pub struct SearchResponse {
     pub results: Vec<SearchResult>,
     pub meta: SearchMeta,
     pub decision: &'static str,
+    pub validation: Validation,
+    pub customer_preferences: Vec<CustomerPreference>,
     pub repair_context: Option<ResolvedRepairContext>,
 }
 
@@ -98,6 +100,33 @@ pub struct Suggestion {
     pub query_rewrite: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct Validation {
+    pub decision: &'static str,
+    pub reason: String,
+    pub missing_risky_attributes: Vec<String>,
+    pub customer_history_influenced: bool,
+    pub internal_note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EvalDiagnostics {
+    pub global_accuracy: f32,
+    pub review_routing_rate: f32,
+    pub total_cases: usize,
+    pub by_customer: Vec<EvalMetric>,
+    pub by_product_family: Vec<EvalMetric>,
+    pub by_attribute_type: Vec<EvalMetric>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EvalMetric {
+    pub key: String,
+    pub accuracy: f32,
+    pub review_routing_rate: f32,
+    pub cases: usize,
+}
+
 #[derive(Debug, Clone)]
 struct ScoredCandidate {
     idx: usize,
@@ -134,6 +163,16 @@ impl Matcher {
         self.profiles.get(customer_id).map(CustomerProfile::summary)
     }
 
+    pub fn customers(&self) -> Vec<CustomerSummary> {
+        let mut customers = self
+            .profiles
+            .values()
+            .map(CustomerProfile::summary)
+            .collect::<Vec<_>>();
+        customers.sort_by(|a, b| a.id.cmp(&b.id));
+        customers
+    }
+
     pub fn search(&self, query: &str, customer_id: Option<&str>) -> SearchResponse {
         let started = Instant::now();
         let repair_context = resolve_repair_context(query);
@@ -159,6 +198,14 @@ impl Matcher {
                     ),
                 },
                 decision: "guidance-only",
+                validation: Validation {
+                    decision: "DO_NOT_RESPOND",
+                    reason: "No verified stocked match for this customer request.".to_string(),
+                    missing_risky_attributes: vec!["verified fitment".to_string()],
+                    customer_history_influenced: false,
+                    internal_note: "Do not auto-respond with a stocked SKU; route internally for model-specific fitment review.".to_string(),
+                },
+                customer_preferences: Vec::new(),
                 repair_context,
             };
         }
@@ -222,16 +269,7 @@ impl Matcher {
             });
         }
 
-        candidates.sort_by(|a, b| {
-            b.final_score
-                .partial_cmp(&a.final_score)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| {
-                    b.attr_score
-                        .partial_cmp(&a.attr_score)
-                        .unwrap_or(Ordering::Equal)
-                })
-        });
+        candidates.sort_by(|a, b| compare_candidates(a, b, &self.catalog));
 
         let top_score = candidates.first().map(|c| c.final_score).unwrap_or(0.0);
         let second_score = candidates.get(1).map(|c| c.final_score).unwrap_or(0.0);
@@ -273,6 +311,12 @@ impl Matcher {
                     top_gap,
                     top_prior_sku_reference,
                 );
+                let variant_ambiguous = variant_ambiguity_review_required(
+                    &parsed,
+                    &self.parsed_catalog[candidate.idx],
+                    &candidate.matches,
+                    rank,
+                );
                 let mut confidence = confidence(
                     candidate.final_score,
                     top_score,
@@ -283,14 +327,23 @@ impl Matcher {
                 );
                 if analysis.has_hard_contradiction {
                     confidence = confidence.min(0.40);
+                } else if variant_ambiguous {
+                    confidence = confidence.min(0.89);
                 } else if analysis.has_soft_contradiction {
                     confidence = confidence.min(0.82);
                 }
                 let can_auto_order = rank == 0
                     && confidence >= 0.90
                     && !analysis.has_hard_contradiction
+                    && !variant_ambiguous
                     && !safety_blocked
                     && (!ambiguous_query || top_prior_sku_reference);
+                let mut review_reasons = analysis.review_reasons;
+                if variant_ambiguous {
+                    review_reasons.push("Finish unspecified for coated steel variant".to_string());
+                    review_reasons.sort();
+                    review_reasons.dedup();
+                }
                 SearchResult {
                     rank: rank + 1,
                     sku: row.sku.clone(),
@@ -305,12 +358,22 @@ impl Matcher {
                     personalized: candidate.personalized,
                     personalization_note: candidate.personalization_note.clone(),
                     match_evidence: analysis.match_evidence,
-                    review_reasons: analysis.review_reasons,
+                    review_reasons,
                     contradictions: analysis.contradictions,
                     can_auto_order,
                 }
             })
             .collect::<Vec<_>>();
+        let customer_preferences = profile
+            .map(|profile| {
+                profile.preferences(
+                    &parsed,
+                    candidates
+                        .first()
+                        .map(|candidate| &self.parsed_catalog[candidate.idx]),
+                )
+            })
+            .unwrap_or_default();
         let decision = decision_for(
             results.first().map(|result| result.confidence).unwrap_or(0.0),
             ambiguous_query,
@@ -328,6 +391,14 @@ impl Matcher {
         } else {
             None
         };
+        let validation = validation_for(
+            decision,
+            results.first(),
+            &parsed,
+            low_confidence_overall,
+            ambiguous_query,
+            &customer_preferences,
+        );
 
         SearchResponse {
             query: QueryEcho {
@@ -345,9 +416,309 @@ impl Matcher {
                 result_message: None,
             },
             decision,
+            validation,
+            customer_preferences,
             repair_context,
         }
     }
+
+    pub fn eval_diagnostics(&self) -> EvalDiagnostics {
+        let cases = eval_cases();
+        let rows = cases
+            .iter()
+            .map(|case| {
+                let response = self.search(case.query, case.customer_id);
+                EvalRow {
+                    customer: case.customer_id.unwrap_or("no-customer").to_string(),
+                    product_family: case.product_family.to_string(),
+                    attribute_type: case.attribute_type.to_string(),
+                    expected_decision: case.expected_decision,
+                    actual_decision: response.validation.decision,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        EvalDiagnostics {
+            global_accuracy: eval_accuracy(&rows),
+            review_routing_rate: review_rate(&rows),
+            total_cases: rows.len(),
+            by_customer: group_metrics(&rows, |row| row.customer.clone()),
+            by_product_family: group_metrics(&rows, |row| row.product_family.clone()),
+            by_attribute_type: group_metrics(&rows, |row| row.attribute_type.clone()),
+        }
+    }
+}
+
+fn validation_for(
+    decision: &'static str,
+    top: Option<&SearchResult>,
+    parsed: &AttrSpec,
+    low_confidence_overall: bool,
+    ambiguous_query: bool,
+    preferences: &[CustomerPreference],
+) -> Validation {
+    let customer_history_influenced = top.is_some_and(|result| result.personalized)
+        || preferences.iter().any(|preference| preference.applied_to_query);
+    let missing_risky_attributes = missing_risky_attributes(top, parsed, low_confidence_overall, ambiguous_query);
+    match decision {
+        "ready-to-order" => Validation {
+            decision: "AUTO_RESPOND",
+            reason: "Top SKU passed the validation gate.".to_string(),
+            missing_risky_attributes,
+            customer_history_influenced,
+            internal_note: "Safe to draft an automatic sales response for the top candidate.".to_string(),
+        },
+        "guidance-only" => Validation {
+            decision: "DO_NOT_RESPOND",
+            reason: "No verified stocked match for this request.".to_string(),
+            missing_risky_attributes,
+            customer_history_influenced,
+            internal_note: "Do not auto-respond; route internally for fitment or stocked-part review.".to_string(),
+        },
+        _ => {
+            let reason = top
+                .and_then(|result| result.review_reasons.first())
+                .cloned()
+                .unwrap_or_else(|| "Validation gate requires internal sales review.".to_string());
+            let mut internal_note = "Route internally to sales review; do not ask the customer for clarification by default.".to_string();
+            if !missing_risky_attributes.is_empty() {
+                internal_note.push_str(" Internal reviewer should verify: ");
+                internal_note.push_str(&missing_risky_attributes.join(", "));
+            }
+            Validation {
+                decision: "SALES_REVIEW",
+                reason,
+                missing_risky_attributes,
+                customer_history_influenced,
+                internal_note,
+            }
+        }
+    }
+}
+
+fn missing_risky_attributes(
+    top: Option<&SearchResult>,
+    parsed: &AttrSpec,
+    low_confidence_overall: bool,
+    ambiguous_query: bool,
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    if parsed.finish.is_none()
+        && top.is_some_and(|result| {
+            result
+                .review_reasons
+                .iter()
+                .any(|reason| reason.to_ascii_lowercase().contains("finish"))
+        })
+    {
+        missing.push("finish".to_string());
+    }
+    if parsed.length_mm.is_none()
+        && top.is_some_and(|result| {
+            result
+                .review_reasons
+                .iter()
+                .any(|reason| reason.to_ascii_lowercase().contains("length"))
+        })
+    {
+        missing.push("length".to_string());
+    }
+    if ambiguous_query {
+        missing.push("variant selection".to_string());
+    }
+    if low_confidence_overall {
+        missing.push("specific product details".to_string());
+    }
+    if let Some(top) = top {
+        for contradiction in &top.contradictions {
+            missing.push(contradiction.field.to_string());
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    missing
+}
+
+struct EvalCase {
+    query: &'static str,
+    customer_id: Option<&'static str>,
+    expected_decision: &'static str,
+    product_family: &'static str,
+    attribute_type: &'static str,
+}
+
+struct EvalRow {
+    customer: String,
+    product_family: String,
+    attribute_type: String,
+    expected_decision: &'static str,
+    actual_decision: &'static str,
+}
+
+fn eval_cases() -> Vec<EvalCase> {
+    vec![
+        EvalCase {
+            query: "1/4-20 x 3/4 hex cap screw zinc",
+            customer_id: Some("CUST-001"),
+            expected_decision: "AUTO_RESPOND",
+            product_family: "hex-cap-screw",
+            attribute_type: "exact",
+        },
+        EvalCase {
+            query: "SHCS 7/16 x 2-1/2",
+            customer_id: Some("CUST-001"),
+            expected_decision: "AUTO_RESPOND",
+            product_family: "socket-head-cap-screw",
+            attribute_type: "abbreviation",
+        },
+        EvalCase {
+            query: "1/4-20 hex cap screw",
+            customer_id: Some("CUST-001"),
+            expected_decision: "AUTO_RESPOND",
+            product_family: "hex-cap-screw",
+            attribute_type: "preference-omitted",
+        },
+        EvalCase {
+            query: "1/4-20 black oxide hex cap screw",
+            customer_id: Some("CUST-001"),
+            expected_decision: "AUTO_RESPOND",
+            product_family: "hex-cap-screw",
+            attribute_type: "explicit-wins",
+        },
+        EvalCase {
+            query: "M8 flat washer",
+            customer_id: Some("CUST-005"),
+            expected_decision: "SALES_REVIEW",
+            product_family: "flat-washer",
+            attribute_type: "sparse-customer",
+        },
+        EvalCase {
+            query: "M8 steel flat washer",
+            customer_id: None,
+            expected_decision: "SALES_REVIEW",
+            product_family: "flat-washer",
+            attribute_type: "hard-negative",
+        },
+        EvalCase {
+            query: "screws for bottom of MacBook Pro",
+            customer_id: None,
+            expected_decision: "DO_NOT_RESPOND",
+            product_family: "proprietary-repair",
+            attribute_type: "fitment",
+        },
+    ]
+}
+
+fn eval_accuracy(rows: &[EvalRow]) -> f32 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    round3(
+        rows.iter()
+            .filter(|row| row.actual_decision == row.expected_decision)
+            .count() as f32
+            / rows.len() as f32,
+    )
+}
+
+fn review_rate(rows: &[EvalRow]) -> f32 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    round3(
+        rows.iter()
+            .filter(|row| row.actual_decision == "SALES_REVIEW")
+            .count() as f32
+            / rows.len() as f32,
+    )
+}
+
+fn group_metrics<F>(rows: &[EvalRow], key_fn: F) -> Vec<EvalMetric>
+where
+    F: Fn(&EvalRow) -> String,
+{
+    let mut groups: HashMap<String, Vec<EvalRowRef<'_>>> = HashMap::new();
+    for row in rows {
+        groups
+            .entry(key_fn(row))
+            .or_default()
+            .push(EvalRowRef { row });
+    }
+    let mut metrics = groups
+        .into_iter()
+        .map(|(key, refs)| {
+            let grouped_rows = refs.into_iter().map(|value| value.row).collect::<Vec<_>>();
+            EvalMetric {
+                key,
+                accuracy: eval_accuracy_refs(&grouped_rows),
+                review_routing_rate: review_rate_refs(&grouped_rows),
+                cases: grouped_rows.len(),
+            }
+        })
+        .collect::<Vec<_>>();
+    metrics.sort_by(|a, b| a.key.cmp(&b.key));
+    metrics
+}
+
+struct EvalRowRef<'a> {
+    row: &'a EvalRow,
+}
+
+fn eval_accuracy_refs(rows: &[&EvalRow]) -> f32 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    round3(
+        rows.iter()
+            .filter(|row| row.actual_decision == row.expected_decision)
+            .count() as f32
+            / rows.len() as f32,
+    )
+}
+
+fn review_rate_refs(rows: &[&EvalRow]) -> f32 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    round3(
+        rows.iter()
+            .filter(|row| row.actual_decision == "SALES_REVIEW")
+            .count() as f32
+            / rows.len() as f32,
+    )
+}
+
+fn compare_candidates(a: &ScoredCandidate, b: &ScoredCandidate, catalog: &[CatalogRow]) -> Ordering {
+    let a_row = &catalog[a.idx];
+    let b_row = &catalog[b.idx];
+    b.final_score
+        .partial_cmp(&a.final_score)
+        .unwrap_or(Ordering::Equal)
+        .then_with(|| b.attr_score.partial_cmp(&a.attr_score).unwrap_or(Ordering::Equal))
+        .then_with(|| b_row.active.cmp(&a_row.active))
+        .then_with(|| b.matches.product_type.cmp(&a.matches.product_type))
+        .then_with(|| b.matches.thread.cmp(&a.matches.thread))
+        .then_with(|| b.matches.length.cmp(&a.matches.length))
+        .then_with(|| b.matches.material.cmp(&a.matches.material))
+        .then_with(|| b.matches.finish.cmp(&a.matches.finish))
+        .then_with(|| a_row.catalog_id.cmp(&b_row.catalog_id))
+        .then_with(|| a_row.sku.cmp(&b_row.sku))
+        .then_with(|| a.idx.cmp(&b.idx))
+}
+
+fn variant_ambiguity_review_required(
+    query: &AttrSpec,
+    candidate: &AttrSpec,
+    matches: &AttributeMatches,
+    rank: usize,
+) -> bool {
+    rank == 0
+        && query.material == Some(crate::types::Material::Steel)
+        && query.finish.is_none()
+        && matches.thread
+        && matches.product_type
+        && matches.material
+        && candidate.finish.is_some()
 }
 
 fn expanded_doc(row: &CatalogRow, attrs: &AttrSpec) -> String {
@@ -793,7 +1164,7 @@ impl Bm25Index {
                 .replace("bhcs", "button socket cap screw")
                 .replace("hhb", "hex head bolt"),
         );
-        let unique_query_tokens = query_tokens.into_iter().collect::<HashSet<_>>();
+        let unique_query_tokens = query_tokens.into_iter().collect::<BTreeSet<_>>();
 
         for token in unique_query_tokens {
             let Some(postings) = self.inverted.get(&token) else {
@@ -819,7 +1190,11 @@ impl Bm25Index {
             scores.into_iter().collect::<Vec<_>>()
         };
 
-        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        ranked.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
         ranked.truncate(top_k);
         ranked
     }
@@ -829,12 +1204,43 @@ impl Bm25Index {
 mod tests {
     use super::*;
     use crate::types::{load_catalog, load_orders};
-    use std::path::PathBuf;
+    use serde::Deserialize;
+    use std::{fs, path::PathBuf};
+
+    #[derive(Debug, Deserialize)]
+    struct HardNegativeCase {
+        query: String,
+        customer_id: Option<String>,
+        expected_decision: Option<String>,
+        must_not_auto_order_if_top_contains: Option<Vec<String>>,
+        expected_review_reason: Option<String>,
+        expected_evidence: Option<String>,
+        must_parse_thread_as: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoldenCase {
+        query: String,
+        customer_id: Option<String>,
+        top3: Vec<String>,
+        decision: String,
+        validation_decision: String,
+        top_can_auto_order: bool,
+        customer_history_influenced: bool,
+        expected_preference_applied: bool,
+    }
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../data")
             .join(name)
+    }
+
+    fn matcher() -> Matcher {
+        Matcher::new(
+            load_catalog(&fixture("catalog.csv")).unwrap(),
+            load_orders(&fixture("order_history.csv")).unwrap(),
+        )
     }
 
     #[test]
@@ -985,5 +1391,181 @@ mod tests {
         let context = response.repair_context.unwrap();
         assert!(matches!(context.match_behavior, MatchBehavior::CatalogMatch));
         assert_eq!(response.results.len(), 3);
+    }
+
+    #[test]
+    fn deterministic_queries_keep_same_top_three_across_cold_construction() {
+        let queries = [
+            ("washer", None),
+            ("bolt", None),
+            ("same washers as last time", Some("CUST-001")),
+            ("M8 flat washer", None),
+            ("M8 steel flat washer", None),
+        ];
+
+        for (query, customer_id) in queries {
+            let expected = matcher()
+                .search(query, customer_id)
+                .results
+                .into_iter()
+                .map(|result| result.sku)
+                .collect::<Vec<_>>();
+            for _ in 0..25 {
+                let actual = matcher()
+                    .search(query, customer_id)
+                    .results
+                    .into_iter()
+                    .map(|result| result.sku)
+                    .collect::<Vec<_>>();
+                assert_eq!(actual, expected, "top3 drifted for {query}");
+            }
+        }
+    }
+
+    #[test]
+    fn hard_negative_cases_are_wired_into_safety_tests() {
+        let cases = fs::read_to_string(fixture("hard_negative_cases.json")).unwrap();
+        let cases = serde_json::from_str::<Vec<HardNegativeCase>>(&cases).unwrap();
+        let matcher = matcher();
+
+        for case in cases {
+            let response = matcher.search(&case.query, case.customer_id.as_deref());
+            if let Some(expected) = case.expected_decision.as_deref() {
+                assert_eq!(response.decision, expected, "decision mismatch for {}", case.query);
+            }
+            if let Some(expected) = case.must_parse_thread_as.as_deref() {
+                assert_eq!(
+                    response.query.parsed.thread_spec.as_deref(),
+                    Some(expected),
+                    "thread parse mismatch for {}",
+                    case.query
+                );
+            }
+            if let Some(reason) = case.expected_review_reason.as_deref() {
+                let found = response
+                    .results
+                    .iter()
+                    .any(|result| result.review_reasons.iter().any(|item| item == reason));
+                assert!(found, "missing review reason {reason:?} for {}", case.query);
+            }
+            if let Some(evidence) = case.expected_evidence.as_deref() {
+                let found = response
+                    .results
+                    .iter()
+                    .any(|result| result.match_evidence.iter().any(|item| item == evidence));
+                assert!(found, "missing evidence {evidence:?} for {}", case.query);
+            }
+            if let Some(patterns) = case.must_not_auto_order_if_top_contains.as_ref() {
+                if let Some(top) = response.results.first() {
+                    let top_description = top.description.to_ascii_lowercase();
+                    if patterns
+                        .iter()
+                        .any(|pattern| top_description.contains(&pattern.to_ascii_lowercase()))
+                    {
+                        assert!(!top.can_auto_order, "unsafe auto-order for {}", case.query);
+                    }
+                }
+            }
+            if case.query == "M8 steel flat washer" {
+                let top = response.results.first().unwrap();
+                assert_eq!(response.decision, "sales-review");
+                assert_eq!(response.validation.decision, "SALES_REVIEW");
+                assert!(!top.can_auto_order);
+                assert!(top.confidence < 0.90);
+            }
+        }
+    }
+
+    #[test]
+    fn golden_cases_lock_rust_matcher_outputs_for_js_parity() {
+        let cases = fs::read_to_string(fixture("demo_golden_cases.json")).unwrap();
+        let cases = serde_json::from_str::<Vec<GoldenCase>>(&cases).unwrap();
+        let matcher = matcher();
+
+        for case in cases {
+            let response = matcher.search(&case.query, case.customer_id.as_deref());
+            let top3 = response
+                .results
+                .iter()
+                .map(|result| result.sku.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(top3, case.top3, "top3 mismatch for {}", case.query);
+            assert_eq!(response.decision, case.decision, "decision mismatch for {}", case.query);
+            assert_eq!(
+                response.validation.decision, case.validation_decision,
+                "validation mismatch for {}",
+                case.query
+            );
+            assert_eq!(
+                response
+                    .results
+                    .first()
+                    .map(|result| result.can_auto_order)
+                    .unwrap_or(false),
+                case.top_can_auto_order,
+                "auto-order mismatch for {}",
+                case.query
+            );
+            assert_eq!(
+                response.validation.customer_history_influenced,
+                case.customer_history_influenced,
+                "history influence mismatch for {}",
+                case.query
+            );
+            assert_eq!(
+                response
+                    .customer_preferences
+                    .iter()
+                    .any(|preference| preference.applied_to_query),
+                case.expected_preference_applied,
+                "preference application mismatch for {}",
+                case.query
+            );
+        }
+    }
+
+    #[test]
+    fn validation_and_preferences_cover_kasyap_scenarios() {
+        let matcher = matcher();
+        let omitted = matcher.search("1/4-20 hex cap screw", Some("CUST-001"));
+        assert_eq!(omitted.validation.decision, "AUTO_RESPOND");
+        assert!(omitted.validation.customer_history_influenced);
+        assert!(omitted
+            .customer_preferences
+            .iter()
+            .any(|preference| preference.scope == "product_family:hex-cap-screw"
+                && preference.attribute == "finish"
+                && preference.value == "zinc"
+                && preference.applied_to_query));
+
+        let explicit = matcher.search("1/4-20 black oxide hex cap screw", Some("CUST-001"));
+        assert_eq!(explicit.validation.decision, "AUTO_RESPOND");
+        assert!(explicit
+            .customer_preferences
+            .iter()
+            .any(|preference| preference.scope == "product_family:hex-cap-screw"
+                && preference.attribute == "finish"
+                && preference.value == "zinc"
+                && !preference.applied_to_query));
+
+        let sparse = matcher.search("M8 flat washer", None);
+        assert!(!sparse.validation.customer_history_influenced);
+        assert!(sparse.customer_preferences.is_empty());
+    }
+
+    #[test]
+    fn eval_diagnostics_group_customer_and_attribute_metrics() {
+        let diagnostics = matcher().eval_diagnostics();
+        assert_eq!(diagnostics.total_cases, 7);
+        assert_eq!(diagnostics.global_accuracy, 1.0);
+        assert!(diagnostics.review_routing_rate > 0.0);
+        assert!(diagnostics
+            .by_customer
+            .iter()
+            .any(|metric| metric.key == "CUST-001"));
+        assert!(diagnostics
+            .by_attribute_type
+            .iter()
+            .any(|metric| metric.key == "hard-negative" && metric.review_routing_rate == 1.0));
     }
 }

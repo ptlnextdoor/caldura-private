@@ -1,0 +1,69 @@
+[
+  {
+    "query": "1/4-20 x 3/4 hex cap screw zinc",
+    "customer_id": "CUST-001",
+    "top3": ["PXHEX1434STZC0003", "PXHEX141ALZC0078", "PXHEX145836ZC0862"],
+    "decision": "ready-to-order",
+    "validation_decision": "AUTO_RESPOND",
+    "top_can_auto_order": true,
+    "customer_history_influenced": true,
+    "expected_preference_applied": true
+  },
+  {
+    "query": "SHCS 7/16 x 2-1/2",
+    "customer_id": "CUST-001",
+    "top3": ["PXSOC716212STZC0375", "PXSOCN10212STYZ0696", "PXHEX716212STMZ0580"],
+    "decision": "ready-to-order",
+    "validation_decision": "AUTO_RESPOND",
+    "top_can_auto_order": true,
+    "customer_history_influenced": true,
+    "expected_preference_applied": true
+  },
+  {
+    "query": "1/4-20 hex cap screw",
+    "customer_id": "CUST-001",
+    "top3": ["PXHEX1434STZC0003", "PXHEX141ALZC0078", "PXHEX1438STMZ0531"],
+    "decision": "ready-to-order",
+    "validation_decision": "AUTO_RESPOND",
+    "top_can_auto_order": true,
+    "customer_history_influenced": true,
+    "expected_preference_applied": true
+  },
+  {
+    "query": "1/4-20 black oxide hex cap screw",
+    "customer_id": "CUST-001",
+    "top3": ["PXHEX144STBO0223", "PXHEX1434STZC0003", "PXHEX1438STMZ0531"],
+    "decision": "ready-to-order",
+    "validation_decision": "AUTO_RESPOND",
+    "top_can_auto_order": true,
+    "customer_history_influenced": true,
+    "expected_preference_applied": true
+  },
+  {
+    "query": "M8 flat washer",
+    "top3": ["PXWASH825STYZ0009", "PXWASH850BRPL0440", "PXWASH830BRZC0520"],
+    "decision": "sales-review",
+    "validation_decision": "SALES_REVIEW",
+    "top_can_auto_order": false,
+    "customer_history_influenced": false,
+    "expected_preference_applied": false
+  },
+  {
+    "query": "M8 steel flat washer",
+    "top3": ["PXWASH825STYZ0009", "PXWASH88088PL0688", "PXWASH850BRPL0440"],
+    "decision": "sales-review",
+    "validation_decision": "SALES_REVIEW",
+    "top_can_auto_order": false,
+    "customer_history_influenced": false,
+    "expected_preference_applied": false
+  },
+  {
+    "query": "screws for bottom of MacBook Pro",
+    "top3": [],
+    "decision": "guidance-only",
+    "validation_decision": "DO_NOT_RESPOND",
+    "top_can_auto_order": false,
+    "customer_history_influenced": false,
+    "expected_preference_applied": false
+  }
+]

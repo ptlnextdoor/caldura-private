@@ -1,10 +1,11 @@
 import { BadgeCheck, History, PackageCheck, SearchCheck } from 'lucide-react';
-import type { SearchDecision, SearchResult } from '../api';
+import type { SearchDecision, SearchResult, ValidationDecision } from '../api';
 import { MetricBadge } from './ui/primitives';
 
 type ResultCardProps = {
   result: SearchResult;
   decision: SearchDecision;
+  validationDecision?: ValidationDecision;
 };
 
 const chipLabels: Array<[keyof SearchResult['attribute_matches'], string]> = [
@@ -15,9 +16,18 @@ const chipLabels: Array<[keyof SearchResult['attribute_matches'], string]> = [
   ['finish', 'finish'],
 ];
 
-function decisionLabel(result: SearchResult, decision: SearchDecision) {
+function decisionLabel(result: SearchResult, decision: SearchDecision, validationDecision?: ValidationDecision) {
   if (result.rank !== 1) {
     return 'Alternative';
+  }
+  if (validationDecision === 'AUTO_RESPOND') {
+    return 'Auto-respond';
+  }
+  if (validationDecision === 'DO_NOT_RESPOND') {
+    return 'Do not respond';
+  }
+  if (validationDecision === 'SALES_REVIEW') {
+    return 'Sales review';
   }
   if (decision === 'ready-to-order') {
     return 'Ready to order';
@@ -28,9 +38,18 @@ function decisionLabel(result: SearchResult, decision: SearchDecision) {
   return 'Sales review';
 }
 
-function decisionClass(result: SearchResult, decision: SearchDecision) {
+function decisionClass(result: SearchResult, decision: SearchDecision, validationDecision?: ValidationDecision) {
   if (result.rank !== 1) {
     return 'confidence-candidate';
+  }
+  if (validationDecision === 'AUTO_RESPOND') {
+    return 'confidence-high';
+  }
+  if (validationDecision === 'DO_NOT_RESPOND') {
+    return 'confidence-low';
+  }
+  if (validationDecision === 'SALES_REVIEW') {
+    return 'confidence-medium';
   }
   if (decision === 'ready-to-order') {
     return 'confidence-high';
@@ -41,7 +60,7 @@ function decisionClass(result: SearchResult, decision: SearchDecision) {
   return 'confidence-medium';
 }
 
-export function ResultCard({ result, decision }: ResultCardProps) {
+export function ResultCard({ result, decision, validationDecision }: ResultCardProps) {
   const confidencePercent = Math.round(result.confidence * 100);
   const closenessPercent = Math.round(result.model_closeness * 100);
   const DecisionIcon = result.rank === 1 && decision === 'ready-to-order' ? BadgeCheck : SearchCheck;
@@ -58,9 +77,9 @@ export function ResultCard({ result, decision }: ResultCardProps) {
               {!result.active && <span className="inactive"> · inactive</span>}
             </p>
           </div>
-          <div className={`confidence ${decisionClass(result, decision)}`}>
+          <div className={`confidence ${decisionClass(result, decision, validationDecision)}`}>
             <DecisionIcon size={16} />
-            <span>{decisionLabel(result, decision)} · {confidencePercent}%</span>
+            <span>{decisionLabel(result, decision, validationDecision)} · {confidencePercent}%</span>
           </div>
         </div>
 

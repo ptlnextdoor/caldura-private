@@ -1,6 +1,6 @@
 use crate::{
     auth::{AuthError, AuthVerifier},
-    search::{Matcher, SearchResponse},
+    search::{EvalDiagnostics, Matcher, SearchResponse},
 };
 use axum::{
     extract::State,
@@ -16,7 +16,8 @@ pub struct AppState {
     pub catalog_size: usize,
     pub boot_time_ms: f64,
     pub matcher: Matcher,
-    pub auth: AuthVerifier,
+    pub auth: Option<AuthVerifier>,
+    pub demo_mode: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -30,6 +31,7 @@ pub struct HealthResponse {
 pub struct SearchRequest {
     pub query: String,
     pub use_personalization: Option<bool>,
+    pub customer_id: Option<String>,
 }
 
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
@@ -40,11 +42,26 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> 
     })
 }
 
+pub async fn eval(State(state): State<Arc<AppState>>) -> Result<Json<EvalDiagnostics>, ApiError> {
+    if !state.demo_mode {
+        return Err(ApiError::forbidden(
+            "diagnostics_disabled",
+            "diagnostics are available only in demo mode",
+        ));
+    }
+
+    Ok(Json(state.matcher.eval_diagnostics()))
+}
+
 pub async fn customers(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<crate::profile::CustomerSummary>>, ApiError> {
-    let user = state.auth.authenticate(&headers).await?;
+    if state.demo_mode {
+        return Ok(Json(state.matcher.customers()));
+    }
+
+    let user = authenticate(&state, &headers).await?;
     let customer = state.matcher.customer(&user.customer_id).ok_or_else(|| {
         ApiError::forbidden(
             "unknown_customer",
@@ -59,17 +76,22 @@ pub async fn search(
     headers: HeaderMap,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ApiError> {
-    let user = state.auth.authenticate(&headers).await?;
+    let query = request.query.trim();
+    if query.is_empty() {
+        return Err(ApiError::bad_request("query_required", "query is required"));
+    }
+
+    if state.demo_mode {
+        let customer_id = demo_customer_id(&state.matcher, &request)?;
+        return Ok(Json(state.matcher.search(query, customer_id.as_deref())));
+    }
+
+    let user = authenticate(&state, &headers).await?;
     if state.matcher.customer(&user.customer_id).is_none() {
         return Err(ApiError::forbidden(
             "unknown_customer",
             "authenticated customer is not authorized",
         ));
-    }
-
-    let query = request.query.trim();
-    if query.is_empty() {
-        return Err(ApiError::bad_request("query_required", "query is required"));
     }
 
     let customer_id = if request.use_personalization.unwrap_or(true) {
@@ -78,6 +100,40 @@ pub async fn search(
         None
     };
     Ok(Json(state.matcher.search(query, customer_id)))
+}
+
+async fn authenticate(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthenticatedUser, ApiError> {
+    let auth = state.auth.as_ref().ok_or_else(|| {
+        ApiError::server_error("auth_not_configured", "authentication is not configured")
+    })?;
+    Ok(auth.authenticate(headers).await?)
+}
+
+fn demo_customer_id(
+    matcher: &Matcher,
+    request: &SearchRequest,
+) -> Result<Option<String>, ApiError> {
+    if request.use_personalization == Some(false) {
+        return Ok(None);
+    }
+    let Some(customer_id) = request
+        .customer_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    if matcher.customer(customer_id).is_none() {
+        return Err(ApiError::forbidden(
+            "unknown_customer",
+            "requested demo customer is not available",
+        ));
+    }
+    Ok(Some(customer_id.to_string()))
 }
 
 #[derive(Debug)]
@@ -99,6 +155,14 @@ impl ApiError {
     fn forbidden(code: &'static str, message: &'static str) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
+            code,
+            message,
+        }
+    }
+
+    fn server_error(code: &'static str, message: &'static str) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             code,
             message,
         }
@@ -194,10 +258,25 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
                 catalog_size: 1000,
                 boot_time_ms: 1.0,
                 matcher,
-                auth,
+                auth: Some(auth),
+                demo_mode: false,
             }),
             handle,
         )
+    }
+
+    fn demo_state() -> Arc<AppState> {
+        let matcher = Matcher::new(
+            load_catalog(&fixture("catalog.csv")).unwrap(),
+            load_orders(&fixture("order_history.csv")).unwrap(),
+        );
+        Arc::new(AppState {
+            catalog_size: 1000,
+            boot_time_ms: 1.0,
+            matcher,
+            auth: None,
+            demo_mode: true,
+        })
     }
 
     async fn spawn_jwks() -> (String, JoinHandle<()>) {
@@ -262,6 +341,7 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
         let request = SearchRequest {
             query: "M8 flat washer".to_string(),
             use_personalization: Some(true),
+            customer_id: None,
         };
 
         let missing = search(
@@ -349,6 +429,7 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
             Json(SearchRequest {
                 query: "same washers as last time".to_string(),
                 use_personalization: Some(false),
+                customer_id: None,
             }),
         )
         .await
@@ -372,5 +453,62 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
         assert_eq!(response.len(), 1);
         assert_eq!(response[0].id, "CUST-001");
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn demo_mode_returns_all_customers_without_auth() {
+        let state = demo_state();
+        let Json(response) = customers(State(state), HeaderMap::new()).await.unwrap();
+
+        assert_eq!(response.len(), 5);
+        assert_eq!(response[0].id, "CUST-001");
+    }
+
+    #[tokio::test]
+    async fn eval_returns_demo_diagnostics() {
+        let state = demo_state();
+        let Json(response) = eval(State(state)).await.unwrap();
+
+        assert_eq!(response.total_cases, 7);
+        assert_eq!(response.global_accuracy, 1.0);
+        assert!(response
+            .by_customer
+            .iter()
+            .any(|metric| metric.key == "CUST-001"));
+    }
+
+    #[tokio::test]
+    async fn eval_is_disabled_outside_demo_mode() {
+        let (state, handle) = test_state().await;
+        let error = eval(State(state)).await.unwrap_err();
+
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "diagnostics_disabled");
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn demo_mode_uses_requested_customer_id() {
+        let state = demo_state();
+        let Json(response) = search(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(SearchRequest {
+                query: "same washers as last time".to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-001".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let expected = state
+            .matcher
+            .search("same washers as last time", Some("CUST-001"))
+            .results[0]
+            .sku
+            .clone();
+        assert_eq!(response.results[0].sku, expected);
+        assert!(response.results[0].personalized);
     }
 }

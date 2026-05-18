@@ -74,6 +74,28 @@ export function customerSummary(customerId) {
   return customers().find((customer) => customer.id === customerId) ?? null;
 }
 
+export function evalDiagnostics() {
+  const rows = evalCases().map((item) => {
+    const response = searchCatalog(item.query, item.customer_id ?? null);
+    return {
+      customer: item.customer_id ?? 'no-customer',
+      product_family: item.product_family,
+      attribute_type: item.attribute_type,
+      expected_decision: item.expected_decision,
+      actual_decision: response.validation.decision,
+    };
+  });
+
+  return {
+    global_accuracy: evalAccuracy(rows),
+    review_routing_rate: reviewRate(rows),
+    total_cases: rows.length,
+    by_customer: groupMetrics(rows, (row) => row.customer),
+    by_product_family: groupMetrics(rows, (row) => row.product_family),
+    by_attribute_type: groupMetrics(rows, (row) => row.attribute_type),
+  };
+}
+
 export function searchCatalog(query, customerId = null) {
   const started = performance.now();
   const { catalog, parsedCatalog, profiles, index } = getData();
@@ -92,6 +114,14 @@ export function searchCatalog(query, customerId = null) {
         result_message: 'This repair appears to need a model-specific Apple pentalobe lower-case screw set, not a standard catalog screw.',
       },
       decision: 'guidance-only',
+      validation: {
+        decision: 'DO_NOT_RESPOND',
+        reason: 'No verified stocked match for this customer request.',
+        missing_risky_attributes: ['verified fitment'],
+        customer_history_influenced: false,
+        internal_note: 'Do not auto-respond with a stocked SKU; route internally for model-specific fitment review.',
+      },
+      customer_preferences: [],
       repair_context,
     };
   }
@@ -136,7 +166,7 @@ export function searchCatalog(query, customerId = null) {
     };
   });
 
-  candidates.sort((a, b) => (b.finalScore - a.finalScore) || (b.attrScore - a.attrScore));
+  candidates.sort((a, b) => compareCandidates(a, b, catalog));
   const topScore = candidates[0]?.finalScore ?? 0;
   const secondScore = candidates[1]?.finalScore ?? 0;
   const topGap = topScore - secondScore;
@@ -156,6 +186,12 @@ export function searchCatalog(query, customerId = null) {
       topGap,
       topPriorSkuReference,
     );
+    const variantAmbiguous = variantAmbiguityReviewRequired(
+      parsed,
+      parsedCatalog[candidate.docId],
+      candidate.matches,
+      index,
+    );
     const conf = confidence(
       candidate.finalScore,
       topScore,
@@ -166,14 +202,20 @@ export function searchCatalog(query, customerId = null) {
     );
     const cappedConfidence = analysis.hasHardContradiction
       ? Math.min(conf, 0.40)
+      : variantAmbiguous
+        ? Math.min(conf, 0.89)
       : analysis.hasSoftContradiction
         ? Math.min(conf, 0.82)
         : conf;
     const canAutoOrder = index === 0
       && cappedConfidence >= 0.90
       && !analysis.hasHardContradiction
+      && !variantAmbiguous
       && !safetyBlocked
       && (!ambiguous_query || topPriorSkuReference);
+    const reviewReasons = variantAmbiguous
+      ? [...new Set([...analysis.reviewReasons, 'Finish unspecified for coated steel variant'])].sort()
+      : analysis.reviewReasons;
     return {
       rank: index + 1,
       sku: row.sku,
@@ -188,11 +230,23 @@ export function searchCatalog(query, customerId = null) {
       personalized: candidate.personalized,
       personalization_note: candidate.personalization_note,
       match_evidence: analysis.matchEvidence,
-      review_reasons: analysis.reviewReasons,
+      review_reasons: reviewReasons,
       contradictions: analysis.contradictions,
       can_auto_order: canAutoOrder,
     };
   });
+  const customer_preferences = profile
+    ? profilePreferences(profile, parsed, parsedCatalog[candidates[0]?.docId])
+    : [];
+  const decision = decisionFor(
+    results[0]?.confidence ?? 0,
+    ambiguous_query,
+    Boolean(safetyBlocked),
+    topPriorSkuReference,
+    Boolean(results[0]?.contradictions?.some((item) => item.severity === 'hard')),
+    Boolean(results[0]?.can_auto_order),
+  );
+  const ambiguous_suggestions = ambiguous_query || low_confidence_overall ? suggestions(parsed) : null;
 
   return {
     query: { original: query, parsed },
@@ -202,20 +256,88 @@ export function searchCatalog(query, customerId = null) {
       candidate_count: catalog.length,
       low_confidence_overall,
       ambiguous_query,
-      ambiguous_suggestions: ambiguous_query || low_confidence_overall ? suggestions(parsed) : null,
+      ambiguous_suggestions,
       no_verified_stocked_match: false,
       result_message: null,
     },
-    decision: decisionFor(
-      results[0]?.confidence ?? 0,
+    decision,
+    validation: validationFor(
+      decision,
+      results[0],
+      parsed,
+      low_confidence_overall,
       ambiguous_query,
-      Boolean(safetyBlocked),
-      topPriorSkuReference,
-      Boolean(results[0]?.contradictions?.some((item) => item.severity === 'hard')),
-      Boolean(results[0]?.can_auto_order),
+      customer_preferences,
     ),
+    customer_preferences,
     repair_context,
   };
+}
+
+function validationFor(decision, top, parsed, lowConfidenceOverall, ambiguousQuery, preferences) {
+  const customerHistoryInfluenced = Boolean(top?.personalized || preferences.some((item) => item.applied_to_query));
+  const missingRiskyAttributes = missingRiskyAttributesFor(top, parsed, lowConfidenceOverall, ambiguousQuery);
+  if (decision === 'ready-to-order') {
+    return {
+      decision: 'AUTO_RESPOND',
+      reason: 'Top SKU passed the validation gate.',
+      missing_risky_attributes: missingRiskyAttributes,
+      customer_history_influenced: customerHistoryInfluenced,
+      internal_note: 'Safe to draft an automatic sales response for the top candidate.',
+    };
+  }
+  if (decision === 'guidance-only') {
+    return {
+      decision: 'DO_NOT_RESPOND',
+      reason: 'No verified stocked match for this request.',
+      missing_risky_attributes: missingRiskyAttributes,
+      customer_history_influenced: customerHistoryInfluenced,
+      internal_note: 'Do not auto-respond; route internally for fitment or stocked-part review.',
+    };
+  }
+  return {
+    decision: 'SALES_REVIEW',
+    reason: top?.review_reasons?.[0] ?? 'Validation gate requires internal sales review.',
+    missing_risky_attributes: missingRiskyAttributes,
+    customer_history_influenced: customerHistoryInfluenced,
+    internal_note: `Route internally to sales review; do not ask the customer for clarification by default.${missingRiskyAttributes.length ? ` Internal reviewer should verify: ${missingRiskyAttributes.join(', ')}` : ''}`,
+  };
+}
+
+function missingRiskyAttributesFor(top, parsed, lowConfidenceOverall, ambiguousQuery) {
+  const out = [];
+  if (!parsed.finish && top?.review_reasons?.some((item) => item.toLowerCase().includes('finish'))) out.push('finish');
+  if (parsed.length_mm == null && top?.review_reasons?.some((item) => item.toLowerCase().includes('length'))) out.push('length');
+  if (ambiguousQuery) out.push('variant selection');
+  if (lowConfidenceOverall) out.push('specific product details');
+  for (const contradiction of top?.contradictions ?? []) out.push(contradiction.field);
+  return [...new Set(out)].sort();
+}
+
+function compareCandidates(a, b, catalog) {
+  const aRow = catalog[a.docId];
+  const bRow = catalog[b.docId];
+  return (b.finalScore - a.finalScore)
+    || (b.attrScore - a.attrScore)
+    || Number(bRow.active) - Number(aRow.active)
+    || Number(b.matches.product_type) - Number(a.matches.product_type)
+    || Number(b.matches.thread) - Number(a.matches.thread)
+    || Number(b.matches.length) - Number(a.matches.length)
+    || Number(b.matches.material) - Number(a.matches.material)
+    || Number(b.matches.finish) - Number(a.matches.finish)
+    || aRow.catalog_id.localeCompare(bRow.catalog_id)
+    || aRow.sku.localeCompare(bRow.sku)
+    || a.docId - b.docId;
+}
+
+function variantAmbiguityReviewRequired(query, candidate, matches, rank) {
+  return rank === 0
+    && query.material === 'steel'
+    && !query.finish
+    && matches.thread
+    && matches.product_type
+    && matches.material
+    && Boolean(candidate.finish);
 }
 
 function resolveRepairContext(query) {
@@ -223,7 +345,7 @@ function resolveRepairContext(query) {
   const matches = repairContexts
     .map((context) => ({ context, score: repairMatchScore(context, normalized) }))
     .filter((match) => match.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => (b.score - a.score) || a.context.id.localeCompare(b.context.id));
 
   if (!matches.length) return null;
 
@@ -456,7 +578,7 @@ function buildIndex(docs) {
 }
 
 function bm25Search(index, query, topK) {
-  const queryTokens = new Set(tokens(query.replace(/shcs/g, 'socket head cap screw').replace(/bhcs/g, 'button socket cap screw').replace(/hhb/g, 'hex head bolt')));
+  const queryTokens = [...new Set(tokens(query.replace(/shcs/g, 'socket head cap screw').replace(/bhcs/g, 'button socket cap screw').replace(/hhb/g, 'hex head bolt')))].sort();
   const scores = new Map();
   for (const token of queryTokens) {
     const postings = index.inverted.get(token);
@@ -472,7 +594,7 @@ function bm25Search(index, query, topK) {
   const ranked = scores.size
     ? [...scores.entries()].map(([docId, score]) => ({ docId, score }))
     : Array.from({ length: index.nDocs }, (_, docId) => ({ docId, score: 0 }));
-  ranked.sort((a, b) => b.score - a.score);
+  ranked.sort((a, b) => (b.score - a.score) || a.docId - b.docId);
   return ranked.slice(0, topK);
 }
 
@@ -532,6 +654,8 @@ function buildProfiles(orders, catalog, parsedCatalog) {
         productTypes: new Map(),
         materials: new Map(),
         finishes: new Map(),
+        productMaterials: new Map(),
+        productFinishes: new Map(),
         threadSizes: new Map(),
       });
     }
@@ -541,32 +665,89 @@ function buildProfiles(orders, catalog, parsedCatalog) {
     inc(profile.productTypes, found.attrs.product_type, Number(order.quantity) || 1);
     inc(profile.materials, found.attrs.material, Number(order.quantity) || 1);
     inc(profile.finishes, found.attrs.finish, Number(order.quantity) || 1);
+    incNested(profile.productMaterials, found.attrs.product_type, found.attrs.material, Number(order.quantity) || 1);
+    incNested(profile.productFinishes, found.attrs.product_type, found.attrs.finish, Number(order.quantity) || 1);
     inc(profile.threadSizes, found.attrs.thread_size_normalized, Number(order.quantity) || 1);
   }
   return profiles;
 }
 
 function profileBias(profile, parsed, sku, attrs, referenceQuery) {
-  if (profile.skus.has(sku)) return { score: referenceQuery ? 0.2 : 0.11, note: 'matches previously ordered SKU' };
-  if (parsed.product_type && parsed.product_type !== attrs.product_type) return { score: 0, note: null };
-
   let score = 0;
-  let note = null;
-  if (attrs.product_type && profile.productTypes.has(attrs.product_type)) {
-    score += referenceQuery ? 0.075 : 0.035;
-    note = 'matches usual product family';
+  const reasons = [];
+  if (profile.skus.has(sku)) {
+    score += referenceQuery ? 0.16 : 0.07;
+    reasons.push('previously ordered SKU');
   }
-  if (attrs.material && profile.materials.has(attrs.material)) score += 0.025;
-  if (attrs.finish && profile.finishes.has(attrs.finish)) score += 0.025;
+  if (attrs.product_type && profile.productTypes.has(attrs.product_type)) {
+    score += parsed.product_type === attrs.product_type || referenceQuery ? 0.08 : 0.035;
+    reasons.push('usual product family');
+  }
+  if (!parsed.material && attrs.material && profile.materials.has(attrs.material)) {
+    score += 0.035;
+    reasons.push('usual material');
+  }
+  if (!parsed.material && attrs.product_type && attrs.material && top(profile.productMaterials.get(attrs.product_type) ?? new Map()) === attrs.material) {
+    score += 0.04;
+    reasons.push('preferred product-family material');
+  }
+  if (!parsed.finish && attrs.finish && profile.finishes.has(attrs.finish)) {
+    score += 0.03;
+    reasons.push('usual finish');
+  }
+  if (!parsed.finish && attrs.product_type && attrs.finish && top(profile.productFinishes.get(attrs.product_type) ?? new Map()) === attrs.finish) {
+    score += 0.045;
+    reasons.push('preferred product-family finish');
+  }
   if (attrs.thread_size_normalized != null) {
     for (const size of profile.threadSizes.keys()) {
       if (Math.abs(Number(size) - attrs.thread_size_normalized) < 0.05) {
         score += 0.02;
+        reasons.push('familiar thread size');
         break;
       }
     }
   }
-  return { score: Math.min(score, referenceQuery ? 0.14 : 0.08), note };
+  return {
+    score: Math.min(score, 0.22),
+    note: reasons[0] ? `matches ${reasons[0]}` : null,
+  };
+}
+
+function profilePreferences(profile, parsed, topCandidate) {
+  const preferences = [
+    preference('global', 'product_family', profile.productTypes, !parsed.product_type, topCandidate?.product_type),
+    preference('global', 'material', profile.materials, !parsed.material, topCandidate?.material),
+    preference('global', 'finish', profile.finishes, !parsed.finish, topCandidate?.finish),
+  ].filter(Boolean);
+
+  if (parsed.product_type) {
+    preferences.push(
+      preference(`product_family:${parsed.product_type}`, 'material', profile.productMaterials.get(parsed.product_type) ?? new Map(), !parsed.material, topCandidate?.material),
+      preference(`product_family:${parsed.product_type}`, 'finish', profile.productFinishes.get(parsed.product_type) ?? new Map(), !parsed.finish, topCandidate?.finish),
+    );
+  }
+
+  return preferences
+    .filter((item) => item && (item.evidence_count >= 2 || item.confidence >= 0.60))
+    .slice(0, 6);
+}
+
+function preference(scope, attribute, counts, canApply, topCandidateValue) {
+  const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+  if (!total) return null;
+  const value = top(counts);
+  if (!value) return null;
+  const evidence = counts.get(value) ?? 0;
+  return {
+    scope,
+    attribute,
+    value,
+    evidence_count: evidence,
+    total_count: total,
+    confidence: round3(evidence / total),
+    applied_to_query: Boolean(canApply && topCandidateValue === value),
+  };
 }
 
 function profileSummary(profile) {
@@ -744,8 +925,95 @@ function inc(map, key, amount) {
   if (key != null) map.set(key, (map.get(key) ?? 0) + amount);
 }
 
+function incNested(map, outerKey, innerKey, amount) {
+  if (outerKey == null || innerKey == null) return;
+  if (!map.has(outerKey)) map.set(outerKey, new Map());
+  inc(map.get(outerKey), innerKey, amount);
+}
+
 function top(map) {
-  return [...map.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  return [...map.entries()].sort((a, b) => (b[1] - a[1]) || String(a[0]).localeCompare(String(b[0])))[0]?.[0] ?? null;
+}
+
+function evalCases() {
+  return [
+    {
+      query: '1/4-20 x 3/4 hex cap screw zinc',
+      customer_id: 'CUST-001',
+      expected_decision: 'AUTO_RESPOND',
+      product_family: 'hex-cap-screw',
+      attribute_type: 'exact',
+    },
+    {
+      query: 'SHCS 7/16 x 2-1/2',
+      customer_id: 'CUST-001',
+      expected_decision: 'AUTO_RESPOND',
+      product_family: 'socket-head-cap-screw',
+      attribute_type: 'abbreviation',
+    },
+    {
+      query: '1/4-20 hex cap screw',
+      customer_id: 'CUST-001',
+      expected_decision: 'AUTO_RESPOND',
+      product_family: 'hex-cap-screw',
+      attribute_type: 'preference-omitted',
+    },
+    {
+      query: '1/4-20 black oxide hex cap screw',
+      customer_id: 'CUST-001',
+      expected_decision: 'AUTO_RESPOND',
+      product_family: 'hex-cap-screw',
+      attribute_type: 'explicit-wins',
+    },
+    {
+      query: 'M8 flat washer',
+      customer_id: 'CUST-005',
+      expected_decision: 'SALES_REVIEW',
+      product_family: 'flat-washer',
+      attribute_type: 'sparse-customer',
+    },
+    {
+      query: 'M8 steel flat washer',
+      expected_decision: 'SALES_REVIEW',
+      product_family: 'flat-washer',
+      attribute_type: 'hard-negative',
+    },
+    {
+      query: 'screws for bottom of MacBook Pro',
+      expected_decision: 'DO_NOT_RESPOND',
+      product_family: 'proprietary-repair',
+      attribute_type: 'fitment',
+    },
+  ];
+}
+
+function evalAccuracy(rows) {
+  return rows.length
+    ? round3(rows.filter((row) => row.actual_decision === row.expected_decision).length / rows.length)
+    : 0;
+}
+
+function reviewRate(rows) {
+  return rows.length
+    ? round3(rows.filter((row) => row.actual_decision === 'SALES_REVIEW').length / rows.length)
+    : 0;
+}
+
+function groupMetrics(rows, keyFn) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = keyFn(row);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, items]) => ({
+      key,
+      accuracy: evalAccuracy(items),
+      review_routing_rate: reviewRate(items),
+      cases: items.length,
+    }));
 }
 
 function trimNumber(input) {
