@@ -43,9 +43,9 @@ export function AppShell() {
           </NavLink>
           <div className="nav-links">
             <NavLink to="/" end>
-              Validate
+              Intake
             </NavLink>
-            <NavLink to="/customers">Customers</NavLink>
+            <NavLink to="/search">Search</NavLink>
             <NavLink to="/eval">Eval</NavLink>
             <NavLink to="/method">Method</NavLink>
           </div>

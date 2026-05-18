@@ -79,7 +79,7 @@ export function CustomersPage() {
               <DataRow label="Profile" value={selected.profile_summary} />
               <Link
                 className="btn btn-primary full-width-link"
-                to={`/?q=${encodeURIComponent('the same washers as last time')}`}
+                to={`/search?q=${encodeURIComponent('the same washers as last time')}`}
               >
                 Try reference query
               </Link>

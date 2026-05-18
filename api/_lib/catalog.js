@@ -37,6 +37,11 @@ const FINISH_PATTERNS = [
   ['plain', ['plain', 'pln']],
 ];
 
+const PRODUCT_OR_REFERENCE_RE = /\b(?:screws?|bolts?|washers?|wshr|nuts?|rod|rods|hcs|shcs|bhcs|hhb|fw|hex|socket|button|phillips|machine|lag|tap|macbook|bike|bottle|cage|boat|hatch|ikea|pump|guard|same|usual|again|reorder|zinc|brass|stainless|steel|alloy|plain|black oxide|hdg)\b|\bm\s?\d+(?:\.\d+)?\b|\b\d+\/\d+(?:-\d+)?\b|#\s?\d+-\d+/i;
+const META_ONLY_RE = /^(?:customer\s*)?(?:email|request|rfq|po|quote|subject)\s*:?$|^(?:thanks|thank you|please send quote)\s*\.?$/i;
+const PRODUCT_LINE_START_RE = /^(?:m\d|#\d|\d+\/\d+|flat\b|lock\b|hex\b|socket\b|button\b|phillips\b|threaded\b|lag\b|tap\b|same\b|usual\b|hcs\b|shcs\b|bhcs\b|hhb\b|fw\b|washer\b|washers\b|screw\b|screws\b|bolt\b|bolts\b|nut\b|nuts\b|rod\b|rods\b)/i;
+const OPENER_RE = /^(?:(?:hi|hello|hey)\b[,\s:;-]*|(?:can you(?:\s+get me)?|could you(?:\s+get me|\s+quote)?|please(?:\s+quote)?|need|looking for|get me)\b[,\s:;-]*)/i;
+
 let cache;
 
 export function getData() {
@@ -83,6 +88,7 @@ export function evalDiagnostics() {
       attribute_type: item.attribute_type,
       expected_decision: item.expected_decision,
       actual_decision: response.validation.decision,
+      review_reasons: reviewReasonsFor(response),
     };
   });
 
@@ -93,7 +99,51 @@ export function evalDiagnostics() {
     by_customer: groupMetrics(rows, (row) => row.customer),
     by_product_family: groupMetrics(rows, (row) => row.product_family),
     by_attribute_type: groupMetrics(rows, (row) => row.attribute_type),
+    customer_health: groupMetrics(rows, (row) => row.customer),
   };
+}
+
+export function intakeRequest(rawRequest, customerId = null) {
+  const started = performance.now();
+  const raw_request = String(rawRequest ?? '');
+  const parsedLines = parseIntakeLines(raw_request);
+  const lines = parsedLines.map((line, index) => {
+    const response = searchCatalog(line.normalized_query, customerId);
+    return {
+      line_number: index + 1,
+      raw_line: line.raw_line,
+      normalized_query: line.normalized_query,
+      quantity: line.quantity,
+      unit: line.unit,
+      parsed_query: response.query.parsed,
+      results: response.results,
+      decision: response.decision,
+      validation: response.validation,
+      customer_preferences: response.customer_preferences,
+      repair_context: response.repair_context,
+    };
+  });
+  const summary = intakeSummary(lines);
+
+  return {
+    customer_id: customerId ?? null,
+    raw_request,
+    lines,
+    overall_validation: aggregateValidation(lines),
+    summary: {
+      ...summary,
+      latency_ms: Math.round((performance.now() - started) * 10) / 10,
+    },
+  };
+}
+
+export function parseIntakeLines(rawRequest) {
+  return String(rawRequest ?? '')
+    .split(/\r?\n/)
+    .map(cleanIntakeLine)
+    .filter((line) => line && isProductLine(line))
+    .map(extractQuantity)
+    .filter((line) => line.normalized_query);
 }
 
 export function searchCatalog(query, customerId = null) {
@@ -302,6 +352,150 @@ function validationFor(decision, top, parsed, lowConfidenceOverall, ambiguousQue
     customer_history_influenced: customerHistoryInfluenced,
     internal_note: `Route internally to sales review; do not ask the customer for clarification by default.${missingRiskyAttributes.length ? ` Internal reviewer should verify: ${missingRiskyAttributes.join(', ')}` : ''}`,
   };
+}
+
+function aggregateValidation(lines) {
+  if (lines.length === 0) {
+    return {
+      decision: 'DO_NOT_RESPOND',
+      reason: 'No line items were detected in the request.',
+      missing_risky_attributes: ['line items'],
+      customer_history_influenced: false,
+      internal_note: 'Do not auto-respond; the request did not contain any parseable line items.',
+    };
+  }
+
+  const decisions = lines.map((line) => line.validation.decision);
+  const decision = decisions.includes('DO_NOT_RESPOND')
+    ? 'DO_NOT_RESPOND'
+    : decisions.includes('SALES_REVIEW')
+      ? 'SALES_REVIEW'
+      : 'AUTO_RESPOND';
+  const missing = [...new Set(lines.flatMap((line) => line.validation.missing_risky_attributes))].sort();
+  const history = lines.some((line) => line.validation.customer_history_influenced);
+
+  if (decision === 'AUTO_RESPOND') {
+    return {
+      decision,
+      reason: 'All extracted lines passed the validation gate.',
+      missing_risky_attributes: missing,
+      customer_history_influenced: history,
+      internal_note: 'Safe to draft an automatic sales response for every extracted line.',
+    };
+  }
+
+  if (decision === 'DO_NOT_RESPOND') {
+    const blocked = decisions.filter((item) => item === 'DO_NOT_RESPOND').length;
+    return {
+      decision,
+      reason: `${blocked} line${blocked === 1 ? '' : 's'} have no verified stocked match.`,
+      missing_risky_attributes: missing,
+      customer_history_influenced: history,
+      internal_note: 'Do not send an automatic customer response until blocked lines receive internal review.',
+    };
+  }
+
+  const review = decisions.filter((item) => item === 'SALES_REVIEW').length;
+  return {
+    decision,
+    reason: `${review} line${review === 1 ? '' : 's'} require sales review before response.`,
+    missing_risky_attributes: missing,
+    customer_history_influenced: history,
+    internal_note: 'Route internally to sales review before drafting the customer response.',
+  };
+}
+
+function intakeSummary(lines) {
+  return {
+    line_count: lines.length,
+    auto_respond_count: lines.filter((line) => line.validation.decision === 'AUTO_RESPOND').length,
+    sales_review_count: lines.filter((line) => line.validation.decision === 'SALES_REVIEW').length,
+    do_not_respond_count: lines.filter((line) => line.validation.decision === 'DO_NOT_RESPOND').length,
+  };
+}
+
+function cleanIntakeLine(value) {
+  const cleaned = String(value ?? '')
+    .trim()
+    .replace(/^[-*•]\s+/, '')
+    .replace(/^\d+[.)]\s+/, '')
+    .replace(/^line\s+\d+\s*:\s*/i, '')
+    .replace(/^[-–—\s]+/, '')
+    .trim();
+  return stripOpeners(cleaned);
+}
+
+function isProductLine(line) {
+  if (!line || META_ONLY_RE.test(line)) return false;
+  return PRODUCT_OR_REFERENCE_RE.test(line) || resolveRepairContext(line) !== null;
+}
+
+function stripOpeners(value) {
+  let current = value.trim();
+  for (let i = 0; i < 4; i += 1) {
+    const next = current.replace(OPENER_RE, '').trim();
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+
+function extractQuantity(line) {
+  let quantity = null;
+  let unit = null;
+  let normalized_query = line;
+  const patterns = [
+    /\b(?:qty|quantity)\s*[:#-]?\s*(\d+(?:\.\d+)?)\s*(pcs?|pieces?|ea|each|units?)?\b/i,
+    /^x\s*(\d+(?:\.\d+)?)\s*(pcs?|pieces?|ea|each|units?)?\b/i,
+    /\b(\d+(?:\.\d+)?)x\b/i,
+    /^(\d+(?:\.\d+)?)\s*(pcs?|pieces?|ea|each|units?)\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized_query.match(pattern);
+    if (!match) continue;
+    quantity = Number(match[1]);
+    unit = normalizeUnit(match[2] ?? null);
+    normalized_query = stripMatchedRange(normalized_query, match.index ?? 0, match[0].length);
+    break;
+  }
+
+  if (quantity == null) {
+    const leading = normalized_query.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+    if (leading && PRODUCT_LINE_START_RE.test(leading[2])) {
+      quantity = Number(leading[1]);
+      normalized_query = leading[2];
+    }
+  }
+
+  return {
+    raw_line: line,
+    normalized_query: normalizeIntakeQuery(normalized_query),
+    quantity,
+    unit,
+  };
+}
+
+function stripMatchedRange(value, index, length) {
+  return `${value.slice(0, index)} ${value.slice(index + length)}`;
+}
+
+function normalizeUnit(value) {
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (['pc', 'pcs', 'piece', 'pieces'].includes(normalized)) return 'pcs';
+  if (['ea', 'each'].includes(normalized)) return 'ea';
+  if (['unit', 'units'].includes(normalized)) return 'units';
+  return normalized;
+}
+
+function normalizeIntakeQuery(value) {
+  return String(value)
+    .replace(/\b(?:please|pls)\b/gi, ' ')
+    .replace(/\b(?:need|want|get me|can you get me)\b/gi, ' ')
+    .replace(/[:;,]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function missingRiskyAttributesFor(top, parsed, lowConfidenceOverall, ambiguousQuery) {
@@ -993,9 +1187,21 @@ function evalAccuracy(rows) {
     : 0;
 }
 
+function autoResponseRate(rows) {
+  return rows.length
+    ? round3(rows.filter((row) => row.actual_decision === 'AUTO_RESPOND').length / rows.length)
+    : 0;
+}
+
 function reviewRate(rows) {
   return rows.length
     ? round3(rows.filter((row) => row.actual_decision === 'SALES_REVIEW').length / rows.length)
+    : 0;
+}
+
+function doNotRespondRate(rows) {
+  return rows.length
+    ? round3(rows.filter((row) => row.actual_decision === 'DO_NOT_RESPOND').length / rows.length)
     : 0;
 }
 
@@ -1011,9 +1217,35 @@ function groupMetrics(rows, keyFn) {
     .map(([key, items]) => ({
       key,
       accuracy: evalAccuracy(items),
+      auto_response_rate: autoResponseRate(items),
       review_routing_rate: reviewRate(items),
+      do_not_respond_rate: doNotRespondRate(items),
       cases: items.length,
+      top_review_reasons: topReviewReasons(items),
     }));
+}
+
+function topReviewReasons(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    for (const reason of row.review_reasons ?? []) {
+      counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([reason, count]) => ({ reason, count }));
+}
+
+function reviewReasonsFor(response) {
+  if (response.validation.decision === 'AUTO_RESPOND') return [];
+  const reasons = [
+    response.validation.reason,
+    ...response.validation.missing_risky_attributes.map((item) => `Missing or risky ${item}`),
+    ...(response.results[0]?.review_reasons ?? []),
+  ].filter(Boolean);
+  return [...new Set(reasons)].sort();
 }
 
 function trimNumber(input) {

@@ -18,7 +18,32 @@ function MetricTable({ title, metrics }: { title: string; metrics: EvalMetric[] 
           <strong>{metric.key}</strong>
           <span>{metric.cases} cases</span>
           <span>{pct(metric.accuracy)} accuracy</span>
+          <span>{pct(metric.auto_response_rate)} auto</span>
           <span>{pct(metric.review_routing_rate)} review routed</span>
+          <span>{pct(metric.do_not_respond_rate)} do not respond</span>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+function CustomerHealth({ metrics }: { metrics: EvalMetric[] }) {
+  return (
+    <Panel className="eval-table customer-health-panel" title="Customer Health" kicker="Eval slice">
+      {metrics.map((metric) => (
+        <div className="health-row" key={metric.key}>
+          <div>
+            <strong>{metric.key}</strong>
+            <span>{metric.cases} cases</span>
+          </div>
+          <span>{pct(metric.auto_response_rate)} auto</span>
+          <span>{pct(metric.review_routing_rate)} review</span>
+          <span>{pct(metric.do_not_respond_rate)} blocked</span>
+          <small>
+            {metric.top_review_reasons.length
+              ? metric.top_review_reasons.map((reason) => `${reason.reason} (${reason.count})`).join(' · ')
+              : 'No review/failure reasons in this slice'}
+          </small>
         </div>
       ))}
     </Panel>
@@ -88,6 +113,8 @@ export function EvalPage() {
 
         {diagnostics && <MetricTable title="By customer" metrics={diagnostics.by_customer} />}
       </section>
+
+      {diagnostics && <CustomerHealth metrics={diagnostics.customer_health} />}
 
       {diagnostics && (
         <section className="two-column-page two-column-page--balanced">

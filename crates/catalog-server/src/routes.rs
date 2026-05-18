@@ -1,6 +1,6 @@
 use crate::{
     auth::{AuthError, AuthVerifier},
-    search::{EvalDiagnostics, Matcher, SearchResponse},
+    search::{parse_intake_lines, EvalDiagnostics, IntakeResponse, Matcher, SearchResponse},
 };
 use axum::{
     extract::State,
@@ -30,6 +30,13 @@ pub struct HealthResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchRequest {
     pub query: String,
+    pub use_personalization: Option<bool>,
+    pub customer_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntakeRequest {
+    pub raw_request: String,
     pub use_personalization: Option<bool>,
     pub customer_id: Option<String>,
 }
@@ -82,7 +89,11 @@ pub async fn search(
     }
 
     if state.demo_mode {
-        let customer_id = demo_customer_id(&state.matcher, &request)?;
+        let customer_id = demo_customer_id(
+            &state.matcher,
+            request.use_personalization,
+            request.customer_id.as_deref(),
+        )?;
         return Ok(Json(state.matcher.search(query, customer_id.as_deref())));
     }
 
@@ -102,6 +113,50 @@ pub async fn search(
     Ok(Json(state.matcher.search(query, customer_id)))
 }
 
+pub async fn intake(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<IntakeRequest>,
+) -> Result<Json<IntakeResponse>, ApiError> {
+    let raw_request = request.raw_request.trim();
+    if raw_request.is_empty() {
+        return Err(ApiError::bad_request(
+            "raw_request_required",
+            "raw_request is required",
+        ));
+    }
+    if parse_intake_lines(raw_request).is_empty() {
+        return Err(ApiError::bad_request(
+            "no_line_items",
+            "no line items were detected",
+        ));
+    }
+
+    if state.demo_mode {
+        let customer_id = demo_customer_id(
+            &state.matcher,
+            request.use_personalization,
+            request.customer_id.as_deref(),
+        )?;
+        return Ok(Json(state.matcher.intake(raw_request, customer_id.as_deref())));
+    }
+
+    let user = authenticate(&state, &headers).await?;
+    if state.matcher.customer(&user.customer_id).is_none() {
+        return Err(ApiError::forbidden(
+            "unknown_customer",
+            "authenticated customer is not authorized",
+        ));
+    }
+
+    let customer_id = if request.use_personalization.unwrap_or(true) {
+        Some(user.customer_id.as_str())
+    } else {
+        None
+    };
+    Ok(Json(state.matcher.intake(raw_request, customer_id)))
+}
+
 async fn authenticate(
     state: &AppState,
     headers: &HeaderMap,
@@ -114,14 +169,13 @@ async fn authenticate(
 
 fn demo_customer_id(
     matcher: &Matcher,
-    request: &SearchRequest,
+    use_personalization: Option<bool>,
+    customer_id: Option<&str>,
 ) -> Result<Option<String>, ApiError> {
-    if request.use_personalization == Some(false) {
+    if use_personalization == Some(false) {
         return Ok(None);
     }
-    let Some(customer_id) = request
-        .customer_id
-        .as_deref()
+    let Some(customer_id) = customer_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
@@ -444,6 +498,56 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
     }
 
     #[tokio::test]
+    async fn intake_uses_authenticated_customer_and_ignores_body_customer_id() {
+        let (state, handle) = test_state().await;
+        let raw_request = "10 pcs same washers as last time";
+        let Json(response) = intake(
+            State(state.clone()),
+            headers(&token(Some("CUST-001"), AUDIENCE)),
+            Json(IntakeRequest {
+                raw_request: raw_request.to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-002".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let forbidden = state
+            .matcher
+            .intake(raw_request, Some("CUST-002"))
+            .lines[0]
+            .results[0]
+            .sku
+            .clone();
+        assert_ne!(response.lines[0].results[0].sku, forbidden);
+        assert!(response.lines[0].results[0].personalized);
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn intake_use_personalization_false_returns_base_ranking() {
+        let (state, handle) = test_state().await;
+        let Json(response) = intake(
+            State(state),
+            headers(&token(Some("CUST-001"), AUDIENCE)),
+            Json(IntakeRequest {
+                raw_request: "same washers as last time".to_string(),
+                use_personalization: Some(false),
+                customer_id: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert!(response.lines[0]
+            .results
+            .iter()
+            .all(|result| !result.personalized));
+        handle.abort();
+    }
+
+    #[tokio::test]
     async fn customers_returns_only_authenticated_customer() {
         let (state, handle) = test_state().await;
         let Json(response) = customers(State(state), headers(&token(Some("CUST-001"), AUDIENCE)))
@@ -473,6 +577,10 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
         assert_eq!(response.global_accuracy, 1.0);
         assert!(response
             .by_customer
+            .iter()
+            .any(|metric| metric.key == "CUST-001"));
+        assert!(response
+            .customer_health
             .iter()
             .any(|metric| metric.key == "CUST-001"));
     }
@@ -510,5 +618,45 @@ D+W8cE32hSqV7/7CO8n84HROR30MkUR3T873uyPbqWtU6svKUFCSQw==
             .clone();
         assert_eq!(response.results[0].sku, expected);
         assert!(response.results[0].personalized);
+    }
+
+    #[tokio::test]
+    async fn demo_mode_intake_uses_requested_customer_id_and_rejects_unknown_customer() {
+        let state = demo_state();
+        let Json(response) = intake(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(IntakeRequest {
+                raw_request: "same washers as last time".to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-001".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let expected = state
+            .matcher
+            .intake("same washers as last time", Some("CUST-001"))
+            .lines[0]
+            .results[0]
+            .sku
+            .clone();
+        assert_eq!(response.lines[0].results[0].sku, expected);
+        assert!(response.lines[0].results[0].personalized);
+
+        let rejected = intake(
+            State(state),
+            HeaderMap::new(),
+            Json(IntakeRequest {
+                raw_request: "M8 flat washer".to_string(),
+                use_personalization: Some(true),
+                customer_id: Some("CUST-999".to_string()),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(rejected.status, StatusCode::FORBIDDEN);
+        assert_eq!(rejected.code, "unknown_customer");
     }
 }

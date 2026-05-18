@@ -4,12 +4,44 @@ use crate::{
     repair::{resolve_repair_context, MatchBehavior, ResolvedRepairContext, SafetyClass},
     types::{AttrSpec, CatalogRow, OrderRow},
 };
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Serialize;
 use std::{
     cmp::Ordering,
     collections::{BTreeSet, HashMap},
     time::Instant,
 };
+
+static PRODUCT_OR_REFERENCE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\b(?:screws?|bolts?|washers?|wshr|nuts?|rod|rods|hcs|shcs|bhcs|hhb|fw|hex|socket|button|phillips|machine|lag|tap|macbook|bike|bottle|cage|boat|hatch|ikea|pump|guard|same|usual|again|reorder|zinc|brass|stainless|steel|alloy|plain|black oxide|hdg)\b|\bm\s?\d+(?:\.\d+)?\b|\b\d+/\d+(?:-\d+)?\b|#\s?\d+-\d+").unwrap()
+});
+static META_ONLY_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^(?:customer\s*)?(?:email|request|rfq|po|quote|subject)\s*:?$|^(?:thanks|thank you|please send quote)\s*\.?$").unwrap()
+});
+static PRODUCT_LINE_START_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^(?:m\d|#\d|\d+/\d+|flat\b|lock\b|hex\b|socket\b|button\b|phillips\b|threaded\b|lag\b|tap\b|same\b|usual\b|hcs\b|shcs\b|bhcs\b|hhb\b|fw\b|washer\b|washers\b|screw\b|screws\b|bolt\b|bolts\b|nut\b|nuts\b|rod\b|rods\b)").unwrap()
+});
+static LIST_MARKER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(?:[-*•]\s+|\d+[.)]\s+)").unwrap());
+static LINE_LABEL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^line\s+\d+\s*:\s*").unwrap());
+static QTY_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\b(?:qty|quantity)\s*[:#-]?\s*(\d+(?:\.\d+)?)\s*(pcs?|pieces?|ea|each|units?)?\b").unwrap()
+});
+static X_PREFIX_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^x\s*(\d+(?:\.\d+)?)\s*(pcs?|pieces?|ea|each|units?)?\b").unwrap());
+static X_SUFFIX_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(\d+(?:\.\d+)?)x\b").unwrap());
+static UNIT_PREFIX_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^(\d+(?:\.\d+)?)\s*(pcs?|pieces?|ea|each|units?)\b").unwrap());
+static LEADING_BARE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(\d+(?:\.\d+)?)\s+(.+)$").unwrap());
+static FILLER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(?:please|pls|need|want|get me|can you get me)\b").unwrap());
+static OPENER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^(?:(?:hi|hello|hey)\b[,\s:;-]*|(?:can you(?:\s+get me)?|could you(?:\s+get me|\s+quote)?|please(?:\s+quote)?|need|looking for|get me)\b[,\s:;-]*)").unwrap()
+});
 
 #[derive(Debug, Clone)]
 pub struct Matcher {
@@ -28,6 +60,47 @@ pub struct SearchResponse {
     pub validation: Validation,
     pub customer_preferences: Vec<CustomerPreference>,
     pub repair_context: Option<ResolvedRepairContext>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IntakeResponse {
+    pub customer_id: Option<String>,
+    pub raw_request: String,
+    pub lines: Vec<IntakeLine>,
+    pub overall_validation: Validation,
+    pub summary: IntakeSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IntakeLine {
+    pub line_number: usize,
+    pub raw_line: String,
+    pub normalized_query: String,
+    pub quantity: Option<f64>,
+    pub unit: Option<String>,
+    pub parsed_query: AttrSpec,
+    pub results: Vec<SearchResult>,
+    pub decision: &'static str,
+    pub validation: Validation,
+    pub customer_preferences: Vec<CustomerPreference>,
+    pub repair_context: Option<ResolvedRepairContext>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IntakeSummary {
+    pub line_count: usize,
+    pub auto_respond_count: usize,
+    pub sales_review_count: usize,
+    pub do_not_respond_count: usize,
+    pub latency_ms: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedIntakeLine {
+    pub raw_line: String,
+    pub normalized_query: String,
+    pub quantity: Option<f64>,
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,14 +190,24 @@ pub struct EvalDiagnostics {
     pub by_customer: Vec<EvalMetric>,
     pub by_product_family: Vec<EvalMetric>,
     pub by_attribute_type: Vec<EvalMetric>,
+    pub customer_health: Vec<EvalMetric>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct EvalMetric {
     pub key: String,
     pub accuracy: f32,
+    pub auto_response_rate: f32,
     pub review_routing_rate: f32,
+    pub do_not_respond_rate: f32,
     pub cases: usize,
+    pub top_review_reasons: Vec<ReviewReasonMetric>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReviewReasonMetric {
+    pub reason: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -422,18 +505,63 @@ impl Matcher {
         }
     }
 
+    pub fn intake(&self, raw_request: &str, customer_id: Option<&str>) -> IntakeResponse {
+        let started = Instant::now();
+        let lines = parse_intake_lines(raw_request)
+            .into_iter()
+            .enumerate()
+            .map(|(index, line)| {
+                let response = self.search(&line.normalized_query, customer_id);
+                let SearchResponse {
+                    query,
+                    results,
+                    decision,
+                    validation,
+                    customer_preferences,
+                    repair_context,
+                    ..
+                } = response;
+                IntakeLine {
+                    line_number: index + 1,
+                    raw_line: line.raw_line,
+                    normalized_query: line.normalized_query,
+                    quantity: line.quantity,
+                    unit: line.unit,
+                    parsed_query: query.parsed,
+                    results,
+                    decision,
+                    validation,
+                    customer_preferences,
+                    repair_context,
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut summary = intake_summary(&lines);
+        summary.latency_ms = round_ms(started.elapsed().as_secs_f64() * 1000.0);
+
+        IntakeResponse {
+            customer_id: customer_id.map(str::to_string),
+            raw_request: raw_request.to_string(),
+            overall_validation: aggregate_validation(&lines),
+            lines,
+            summary,
+        }
+    }
+
     pub fn eval_diagnostics(&self) -> EvalDiagnostics {
         let cases = eval_cases();
         let rows = cases
             .iter()
             .map(|case| {
                 let response = self.search(case.query, case.customer_id);
+                let review_reasons = review_reasons_for(&response);
                 EvalRow {
                     customer: case.customer_id.unwrap_or("no-customer").to_string(),
                     product_family: case.product_family.to_string(),
                     attribute_type: case.attribute_type.to_string(),
                     expected_decision: case.expected_decision,
                     actual_decision: response.validation.decision,
+                    review_reasons,
                 }
             })
             .collect::<Vec<_>>();
@@ -445,8 +573,213 @@ impl Matcher {
             by_customer: group_metrics(&rows, |row| row.customer.clone()),
             by_product_family: group_metrics(&rows, |row| row.product_family.clone()),
             by_attribute_type: group_metrics(&rows, |row| row.attribute_type.clone()),
+            customer_health: group_metrics(&rows, |row| row.customer.clone()),
         }
     }
+}
+
+pub fn parse_intake_lines(raw_request: &str) -> Vec<ParsedIntakeLine> {
+    raw_request
+        .lines()
+        .filter_map(clean_intake_line)
+        .filter(|line| is_product_line(line))
+        .map(|line| extract_quantity(&line))
+        .filter(|line| !line.normalized_query.is_empty())
+        .collect()
+}
+
+fn aggregate_validation(lines: &[IntakeLine]) -> Validation {
+    if lines.is_empty() {
+        return Validation {
+            decision: "DO_NOT_RESPOND",
+            reason: "No line items were detected in the request.".to_string(),
+            missing_risky_attributes: vec!["line items".to_string()],
+            customer_history_influenced: false,
+            internal_note:
+                "Do not auto-respond; the request did not contain any parseable line items."
+                    .to_string(),
+        };
+    }
+
+    let decision = if lines
+        .iter()
+        .any(|line| line.validation.decision == "DO_NOT_RESPOND")
+    {
+        "DO_NOT_RESPOND"
+    } else if lines
+        .iter()
+        .any(|line| line.validation.decision == "SALES_REVIEW")
+    {
+        "SALES_REVIEW"
+    } else {
+        "AUTO_RESPOND"
+    };
+    let mut missing = lines
+        .iter()
+        .flat_map(|line| line.validation.missing_risky_attributes.iter().cloned())
+        .collect::<Vec<_>>();
+    missing.sort();
+    missing.dedup();
+    let history = lines
+        .iter()
+        .any(|line| line.validation.customer_history_influenced);
+
+    match decision {
+        "AUTO_RESPOND" => Validation {
+            decision,
+            reason: "All extracted lines passed the validation gate.".to_string(),
+            missing_risky_attributes: missing,
+            customer_history_influenced: history,
+            internal_note: "Safe to draft an automatic sales response for every extracted line."
+                .to_string(),
+        },
+        "DO_NOT_RESPOND" => {
+            let blocked = lines
+                .iter()
+                .filter(|line| line.validation.decision == "DO_NOT_RESPOND")
+                .count();
+            Validation {
+                decision,
+                reason: format!(
+                    "{} line{} have no verified stocked match.",
+                    blocked,
+                    if blocked == 1 { "" } else { "s" }
+                ),
+                missing_risky_attributes: missing,
+                customer_history_influenced: history,
+                internal_note: "Do not send an automatic customer response until blocked lines receive internal review.".to_string(),
+            }
+        }
+        _ => {
+            let review = lines
+                .iter()
+                .filter(|line| line.validation.decision == "SALES_REVIEW")
+                .count();
+            Validation {
+                decision,
+                reason: format!(
+                    "{} line{} require sales review before response.",
+                    review,
+                    if review == 1 { "" } else { "s" }
+                ),
+                missing_risky_attributes: missing,
+                customer_history_influenced: history,
+                internal_note:
+                    "Route internally to sales review before drafting the customer response."
+                        .to_string(),
+            }
+        }
+    }
+}
+
+fn intake_summary(lines: &[IntakeLine]) -> IntakeSummary {
+    IntakeSummary {
+        line_count: lines.len(),
+        auto_respond_count: lines
+            .iter()
+            .filter(|line| line.validation.decision == "AUTO_RESPOND")
+            .count(),
+        sales_review_count: lines
+            .iter()
+            .filter(|line| line.validation.decision == "SALES_REVIEW")
+            .count(),
+        do_not_respond_count: lines
+            .iter()
+            .filter(|line| line.validation.decision == "DO_NOT_RESPOND")
+            .count(),
+        latency_ms: 0.0,
+    }
+}
+
+fn clean_intake_line(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let without_marker = LIST_MARKER_RE.replace(trimmed, "");
+    let without_label = LINE_LABEL_RE.replace(&without_marker, "");
+    let cleaned = without_label
+        .trim_start_matches(|ch: char| ch == '-' || ch == '–' || ch == '—' || ch.is_whitespace())
+        .trim()
+        .to_string();
+    let cleaned = strip_openers(&cleaned);
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+fn is_product_line(line: &str) -> bool {
+    if META_ONLY_RE.is_match(line) {
+        return false;
+    }
+    PRODUCT_OR_REFERENCE_RE.is_match(line) || resolve_repair_context(line).is_some()
+}
+
+fn strip_openers(value: &str) -> String {
+    let mut current = value.trim().to_string();
+    for _ in 0..4 {
+        let next = OPENER_RE.replace(&current, "").trim().to_string();
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
+fn extract_quantity(line: &str) -> ParsedIntakeLine {
+    let mut quantity = None;
+    let mut unit = None;
+    let mut normalized_query = line.to_string();
+
+    for regex in [&*QTY_RE, &*X_PREFIX_RE, &*X_SUFFIX_RE, &*UNIT_PREFIX_RE] {
+        if let Some(caps) = regex.captures(&normalized_query) {
+            if let Some(value) = caps.get(1).and_then(|item| item.as_str().parse::<f64>().ok()) {
+                let matched = caps.get(0).unwrap();
+                quantity = Some(value);
+                unit = caps.get(2).and_then(|item| normalize_unit(item.as_str()));
+                normalized_query = strip_matched_range(&normalized_query, matched.start(), matched.end());
+                break;
+            }
+        }
+    }
+
+    if quantity.is_none() {
+        if let Some(caps) = LEADING_BARE_RE.captures(&normalized_query) {
+            let rest = caps.get(2).unwrap().as_str();
+            if PRODUCT_LINE_START_RE.is_match(rest) {
+                quantity = caps.get(1).and_then(|item| item.as_str().parse::<f64>().ok());
+                normalized_query = rest.to_string();
+            }
+        }
+    }
+
+    ParsedIntakeLine {
+        raw_line: line.to_string(),
+        normalized_query: normalize_intake_query(&normalized_query),
+        quantity,
+        unit,
+    }
+}
+
+fn strip_matched_range(value: &str, start: usize, end: usize) -> String {
+    format!("{} {}", &value[..start], &value[end..])
+}
+
+fn normalize_unit(value: &str) -> Option<String> {
+    match value.to_ascii_lowercase().as_str() {
+        "pc" | "pcs" | "piece" | "pieces" => Some("pcs".to_string()),
+        "ea" | "each" => Some("ea".to_string()),
+        "unit" | "units" => Some("units".to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_intake_query(value: &str) -> String {
+    FILLER_RE
+        .replace_all(value, " ")
+        .trim_end_matches([':', ';', ','])
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn validation_for(
@@ -553,6 +886,7 @@ struct EvalRow {
     attribute_type: String,
     expected_decision: &'static str,
     actual_decision: &'static str,
+    review_reasons: Vec<String>,
 }
 
 fn eval_cases() -> Vec<EvalCase> {
@@ -651,8 +985,11 @@ where
             EvalMetric {
                 key,
                 accuracy: eval_accuracy_refs(&grouped_rows),
+                auto_response_rate: auto_response_rate_refs(&grouped_rows),
                 review_routing_rate: review_rate_refs(&grouped_rows),
+                do_not_respond_rate: do_not_respond_rate_refs(&grouped_rows),
                 cases: grouped_rows.len(),
+                top_review_reasons: top_review_reasons(&grouped_rows),
             }
         })
         .collect::<Vec<_>>();
@@ -686,6 +1023,67 @@ fn review_rate_refs(rows: &[&EvalRow]) -> f32 {
             .count() as f32
             / rows.len() as f32,
     )
+}
+
+fn auto_response_rate_refs(rows: &[&EvalRow]) -> f32 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    round3(
+        rows.iter()
+            .filter(|row| row.actual_decision == "AUTO_RESPOND")
+            .count() as f32
+            / rows.len() as f32,
+    )
+}
+
+fn do_not_respond_rate_refs(rows: &[&EvalRow]) -> f32 {
+    if rows.is_empty() {
+        return 0.0;
+    }
+    round3(
+        rows.iter()
+            .filter(|row| row.actual_decision == "DO_NOT_RESPOND")
+            .count() as f32
+            / rows.len() as f32,
+    )
+}
+
+fn top_review_reasons(rows: &[&EvalRow]) -> Vec<ReviewReasonMetric> {
+    let mut counts = HashMap::<String, usize>::new();
+    for row in rows {
+        for reason in &row.review_reasons {
+            *counts.entry(reason.clone()).or_default() += 1;
+        }
+    }
+    let mut reasons = counts
+        .into_iter()
+        .map(|(reason, count)| ReviewReasonMetric { reason, count })
+        .collect::<Vec<_>>();
+    reasons.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.reason.cmp(&b.reason)));
+    reasons.truncate(3);
+    reasons
+}
+
+fn review_reasons_for(response: &SearchResponse) -> Vec<String> {
+    if response.validation.decision == "AUTO_RESPOND" {
+        return Vec::new();
+    }
+    let mut reasons = Vec::new();
+    reasons.push(response.validation.reason.clone());
+    reasons.extend(
+        response
+            .validation
+            .missing_risky_attributes
+            .iter()
+            .map(|item| format!("Missing or risky {item}")),
+    );
+    if let Some(top) = response.results.first() {
+        reasons.extend(top.review_reasons.iter().cloned());
+    }
+    reasons.sort();
+    reasons.dedup();
+    reasons
 }
 
 fn compare_candidates(a: &ScoredCandidate, b: &ScoredCandidate, catalog: &[CatalogRow]) -> Ordering {
@@ -1564,8 +1962,176 @@ mod tests {
             .iter()
             .any(|metric| metric.key == "CUST-001"));
         assert!(diagnostics
+            .customer_health
+            .iter()
+            .any(|metric| metric.key == "CUST-001" && metric.top_review_reasons.is_empty()));
+        assert!(diagnostics
             .by_attribute_type
             .iter()
             .any(|metric| metric.key == "hard-negative" && metric.review_routing_rate == 1.0));
+    }
+
+    #[test]
+    fn intake_parser_splits_lines_and_ignores_meta_lines() {
+        let lines = parse_intake_lines(
+            r#"
+Customer email:
+Hey, can you get me:
+- 10 pcs 3/4-10 hex cap screws
+2. qty 25 M8 flat washers
+Need zinc if possible
+same washers as last time
+"#,
+        );
+
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| line.normalized_query.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "3/4-10 hex cap screws",
+                "M8 flat washers",
+                "zinc if possible",
+                "same washers as last time"
+            ]
+        );
+        assert_eq!(
+            lines.iter().map(|line| line.quantity).collect::<Vec<_>>(),
+            vec![Some(10.0), Some(25.0), None, None]
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| line.unit.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("pcs"), None, None, None]
+        );
+    }
+
+    #[test]
+    fn intake_parser_strips_natural_customer_openers_before_classification() {
+        let cases = [
+            (
+                "Can you get me M8 flat washers",
+                "M8 flat washers",
+                None,
+                None,
+            ),
+            ("Please quote M8 flat washers", "M8 flat washers", None, None),
+            ("Hey M8 flat washers", "M8 flat washers", None, None),
+            (
+                "Hi, can you get me 10 pcs 3/4-10 hex head cap screws",
+                "3/4-10 hex head cap screws",
+                Some(10.0),
+                Some("pcs"),
+            ),
+            (
+                "Need 25 M8 flat washers",
+                "M8 flat washers",
+                Some(25.0),
+                None,
+            ),
+            (
+                "Looking for M8 x 50mm BHCS",
+                "M8 x 50mm BHCS",
+                None,
+                None,
+            ),
+        ];
+
+        for (raw, normalized, quantity, unit) in cases {
+            let lines = parse_intake_lines(raw);
+            assert_eq!(lines.len(), 1, "line count mismatch for {raw}");
+            assert_eq!(lines[0].normalized_query, normalized, "query mismatch for {raw}");
+            assert_eq!(lines[0].quantity, quantity, "quantity mismatch for {raw}");
+            assert_eq!(lines[0].unit.as_deref(), unit, "unit mismatch for {raw}");
+        }
+
+        assert!(parse_intake_lines("Thanks").is_empty());
+        assert!(parse_intake_lines("Please send quote").is_empty());
+        assert!(parse_intake_lines("Hi").is_empty());
+        assert!(parse_intake_lines("Can you help?").is_empty());
+        assert!(parse_intake_lines("Let me know").is_empty());
+    }
+
+    #[test]
+    fn intake_parser_extracts_supported_quantity_formats() {
+        let cases = [
+            ("qty 10 M8 flat washers", 10.0, None, "M8 flat washers"),
+            (
+                "10 pieces M8 flat washers",
+                10.0,
+                Some("pcs"),
+                "M8 flat washers",
+            ),
+            ("10 ea M8 flat washers", 10.0, Some("ea"), "M8 flat washers"),
+            ("x10 M8 flat washers", 10.0, None, "M8 flat washers"),
+            ("M8 flat washers 10x", 10.0, None, "M8 flat washers"),
+            ("25 M8 flat washers", 25.0, None, "M8 flat washers"),
+        ];
+
+        for (raw, quantity, unit, normalized) in cases {
+            let line = parse_intake_lines(raw).pop().unwrap();
+            assert_eq!(line.quantity, Some(quantity), "quantity mismatch for {raw}");
+            assert_eq!(line.unit.as_deref(), unit, "unit mismatch for {raw}");
+            assert_eq!(line.normalized_query, normalized, "query mismatch for {raw}");
+        }
+    }
+
+    #[test]
+    fn intake_runs_matcher_per_line_and_aggregates_validation() {
+        let response = matcher().intake(
+            r#"
+10 pcs 1/4-20 x 3/4 hex cap screw zinc
+25 M8 steel flat washer
+screws for bottom of MacBook Pro
+"#,
+            Some("CUST-001"),
+        );
+
+        assert_eq!(response.lines.len(), 3);
+        assert_eq!(response.lines[0].validation.decision, "AUTO_RESPOND");
+        assert_eq!(response.lines[1].validation.decision, "SALES_REVIEW");
+        assert_eq!(response.lines[2].validation.decision, "DO_NOT_RESPOND");
+        assert_eq!(response.overall_validation.decision, "DO_NOT_RESPOND");
+        assert_eq!(response.summary.auto_respond_count, 1);
+        assert_eq!(response.summary.sales_review_count, 1);
+        assert_eq!(response.summary.do_not_respond_count, 1);
+        assert_eq!(response.lines[0].results.len(), 3);
+    }
+
+    #[test]
+    fn intake_helper_returns_do_not_respond_when_no_lines_are_parsed() {
+        let response = matcher().intake("Thanks", Some("CUST-001"));
+        assert!(response.lines.is_empty());
+        assert_eq!(response.overall_validation.decision, "DO_NOT_RESPOND");
+        assert_eq!(response.summary.line_count, 0);
+        assert_eq!(response.summary.auto_respond_count, 0);
+        assert_eq!(response.summary.sales_review_count, 0);
+        assert_eq!(response.summary.do_not_respond_count, 0);
+    }
+
+    #[test]
+    fn intake_demo_cases_cover_required_scenarios() {
+        let response = matcher().intake(
+            r#"
+5 pcs 1/4-20 x 3/4 hex cap screw zinc
+SHCS 7/16 x 2-1/2
+1/4-20 hex cap screw
+1/4-20 black oxide hex cap screw
+M8 steel flat washer
+screws for bottom of MacBook Pro
+"#,
+            Some("CUST-001"),
+        );
+
+        assert_eq!(response.lines.len(), 6);
+        assert_eq!(response.lines[0].validation.decision, "AUTO_RESPOND");
+        assert_eq!(response.lines[1].validation.decision, "AUTO_RESPOND");
+        assert!(response.lines[2].validation.customer_history_influenced);
+        assert_eq!(response.lines[3].validation.decision, "AUTO_RESPOND");
+        assert_eq!(response.lines[4].validation.decision, "SALES_REVIEW");
+        assert_eq!(response.lines[5].validation.decision, "DO_NOT_RESPOND");
     }
 }

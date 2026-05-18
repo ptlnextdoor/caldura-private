@@ -63,7 +63,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -369,6 +370,36 @@ a {
   color: rgba(11, 16, 21, 0.42);
 }
 
+.textarea-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.textarea-shell svg {
+  margin-top: 3px;
+}
+
+.textarea-shell textarea {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.textarea-shell textarea::placeholder {
+  color: rgba(11, 16, 21, 0.42);
+}
+
 .input-icon {
   display: grid;
   place-items: center;
@@ -441,6 +472,21 @@ a {
   margin-top: 14px;
 }
 
+.intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.intake-actions span {
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
 .section-heading {
   display: flex;
   align-items: end;
@@ -463,6 +509,89 @@ a {
 .results-list {
   display: grid;
   gap: 12px;
+}
+
+.intake-line-list {
+  display: grid;
+  gap: 16px;
+}
+
+.intake-line-card {
+  display: grid;
+  gap: 14px;
+}
+
+.intake-line-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.intake-line-heading h2 {
+  margin: 4px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 26px;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+
+.intake-line-heading p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.line-decision {
+  white-space: nowrap;
+}
+
+.line-auto_respond {
+  color: var(--green);
+}
+
+.line-sales_review {
+  color: var(--orange);
+}
+
+.line-do_not_respond {
+  color: var(--red);
+}
+
+.line-metadata {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 8px;
+}
+
+.line-preferences {
+  display: grid;
+  gap: 7px;
+}
+
+.line-repair-note {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(217, 119, 6, 0.24);
+  background: rgba(217, 119, 6, 0.08);
+  padding: 12px;
+}
+
+.line-repair-note strong {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 15px;
+}
+
+.line-repair-note span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.line-results {
+  display: grid;
+  gap: 10px;
 }
 
 .result-card {
@@ -1181,7 +1310,8 @@ a {
 }
 
 .preference-row,
-.eval-row {
+.eval-row,
+.health-row {
   display: grid;
   gap: 4px;
   padding: 12px;
@@ -1196,20 +1326,25 @@ a {
 }
 
 .preference-row strong,
-.eval-row strong {
+.eval-row strong,
+.health-row strong {
   font-family: "Space Grotesk", sans-serif;
   font-size: 14px;
 }
 
 .preference-row span,
 .preference-row small,
-.eval-row span {
+.eval-row span,
+.health-row span,
+.health-row small {
   color: var(--muted);
   font-size: 12px;
 }
 
 .eval-row strong,
-.eval-row span {
+.eval-row span,
+.health-row strong,
+.health-row span {
   font-variant-numeric: tabular-nums;
   min-width: 0;
 }
@@ -1219,15 +1354,35 @@ a {
 }
 
 .eval-row {
-  grid-template-columns: minmax(9.5rem, 1.4fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(8rem, 1.3fr) repeat(5, minmax(0, 1fr));
   align-items: start;
   gap: 8px 12px;
+}
+
+.health-row {
+  grid-template-columns: minmax(9rem, 1.5fr) repeat(3, minmax(0, 0.7fr)) minmax(12rem, 2fr);
+  align-items: start;
+  gap: 8px 12px;
+}
+
+.health-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.health-row small {
+  line-height: 1.4;
 }
 
 @media (max-width: 980px) {
   .workspace,
   .two-column-page,
   .method-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .line-metadata,
+  .health-row {
     grid-template-columns: 1fr;
   }
 
@@ -1319,6 +1474,18 @@ a {
 
   .result-heading {
     display: grid;
+  }
+
+  .intake-line-heading {
+    display: grid;
+  }
+
+  .line-decision {
+    width: max-content;
+  }
+
+  .eval-row {
+    grid-template-columns: 1fr 1fr;
   }
 
   .parsed-grid {

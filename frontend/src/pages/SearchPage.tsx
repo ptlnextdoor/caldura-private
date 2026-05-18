@@ -131,9 +131,9 @@ export function SearchPage() {
     return (
       <PageSection
         className="search-page"
-        copy="Validate incoming customer requests after signing in."
-        kicker="Sales validation"
-        title="Route customer requests to auto-response or sales review."
+        copy="Validate one catalog query against the matcher."
+        kicker="Single search"
+        title="Single Catalog Search"
       >
         <AuthRequired />
       </PageSection>
@@ -143,9 +143,9 @@ export function SearchPage() {
   return (
     <PageSection
       className="search-page"
-      copy="Map messy customer request language to SKU candidates, then validate whether the system can safely respond or should route internally to sales."
-      kicker="Sales validation"
-      title="Validate the request before it reaches the customer."
+      copy="Validate one catalog query against the matcher."
+      kicker="Single search"
+      title="Single Catalog Search"
     >
       <div className="hero-meta">
         <MetricBadge label="Catalog" value="1,000 SKUs" />
@@ -283,7 +283,7 @@ export function SearchPage() {
             <Database size={18} />
             <div>
               <strong>In-memory index</strong>
-              <span>BM25 text rank plus soft parser boosts. No backend changes in this redesign.</span>
+              <span>BM25 text rank plus soft parser boosts, shared by search and intake.</span>
             </div>
           </Panel>
         </aside>
