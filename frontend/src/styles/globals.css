@@ -182,6 +182,22 @@ a {
   font-size: 11px;
 }
 
+.demo-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  background: rgba(217, 119, 6, 0.1);
+  color: #9a5a05;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .nav-links a {
   min-height: 34px;
   padding: 0 13px;
@@ -1113,6 +1129,56 @@ a {
   line-height: 1.55;
 }
 
+.internal-note {
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px solid rgba(217, 119, 6, 0.24);
+  border-radius: 14px;
+  background: rgba(217, 119, 6, 0.08);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.preference-list,
+.eval-table {
+  display: grid;
+  gap: 10px;
+}
+
+.preference-row,
+.eval-row {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.preference-row.applied {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.preference-row strong,
+.eval-row strong {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+}
+
+.preference-row span,
+.preference-row small,
+.eval-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.eval-row {
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, auto);
+  align-items: center;
+}
+
 @media (max-width: 980px) {
   .workspace,
   .two-column-page,
@@ -1157,6 +1223,13 @@ a {
   .nav-links a {
     padding: 0 8px;
     font-size: 13px;
+  }
+
+  .demo-mode-badge {
+    min-height: 24px;
+    padding: 0 7px;
+    font-size: 9px;
+    letter-spacing: 0.04em;
   }
 
   .app-shell {
@@ -1204,6 +1277,10 @@ a {
   }
 
   .parsed-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .eval-row {
     grid-template-columns: 1fr;
   }
 

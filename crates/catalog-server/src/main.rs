@@ -12,7 +12,7 @@ use axum::{
     http::{header, HeaderValue, Method},
     Router,
 };
-use routes::{customers, health, search, AppState};
+use routes::{customers, eval, health, search, AppState};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Instant};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -37,18 +37,26 @@ async fn main() -> anyhow::Result<()> {
     let orders = types::load_orders(&orders_path)
         .with_context(|| format!("failed to load {}", orders_path.display()))?;
     let matcher = search::Matcher::new(catalog.clone(), orders.clone());
-    let auth = AuthVerifier::new(AuthConfig::from_env()?);
+    let demo_mode = demo_mode_from_env();
+    let auth = if demo_mode {
+        None
+    } else {
+        Some(AuthVerifier::new(AuthConfig::from_env()?))
+    };
 
     let state = Arc::new(AppState {
         catalog_size: catalog.len(),
         boot_time_ms: boot_started.elapsed().as_secs_f64() * 1000.0,
         matcher,
         auth,
+        demo_mode,
     });
 
     let app = Router::new()
         .route("/health", axum::routing::get(health))
         .route("/api/health", axum::routing::get(health))
+        .route("/eval", axum::routing::get(eval))
+        .route("/api/eval", axum::routing::get(eval))
         .route("/customers", axum::routing::get(customers))
         .route("/api/customers", axum::routing::get(customers))
         .route("/search", axum::routing::post(search))
@@ -67,6 +75,26 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn demo_mode_from_env() -> bool {
+    let demo_mode = std::env::var("DEMO_MODE").ok();
+    let app_env = std::env::var("APP_ENV").ok();
+    demo_mode_from_values(demo_mode.as_deref(), app_env.as_deref())
+}
+
+fn demo_mode_from_values(demo_mode: Option<&str>, app_env: Option<&str>) -> bool {
+    if matches!(
+        app_env.map(|value| value.trim().to_ascii_lowercase()),
+        Some(value) if value == "prod" || value == "production"
+    ) {
+        return false;
+    }
+
+    matches!(
+        demo_mode.map(|value| value.trim().to_ascii_lowercase()),
+        Some(value) if value == "1" || value == "true" || value == "yes"
+    )
 }
 
 fn cors_layer() -> anyhow::Result<CorsLayer> {
@@ -101,6 +129,25 @@ mod tests {
         routing::get,
     };
     use tower::ServiceExt;
+
+    #[test]
+    fn demo_mode_defaults_to_disabled() {
+        assert!(!demo_mode_from_values(None, None));
+    }
+
+    #[test]
+    fn demo_mode_requires_explicit_truthy_flag() {
+        assert!(demo_mode_from_values(Some("true"), None));
+        assert!(demo_mode_from_values(Some("1"), Some("demo")));
+        assert!(demo_mode_from_values(Some("yes"), Some(" demo ")));
+        assert!(!demo_mode_from_values(Some("false"), Some("demo")));
+    }
+
+    #[test]
+    fn production_app_env_blocks_demo_mode() {
+        assert!(!demo_mode_from_values(Some("true"), Some("production")));
+        assert!(!demo_mode_from_values(Some("true"), Some("prod")));
+    }
 
     #[tokio::test]
     async fn cors_allows_configured_origin_and_rejects_other_origins() {

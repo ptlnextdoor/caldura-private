@@ -18,6 +18,26 @@ export type Customer = {
   profile_summary: string;
 };
 
+export type ValidationDecision = 'AUTO_RESPOND' | 'SALES_REVIEW' | 'DO_NOT_RESPOND';
+
+export type Validation = {
+  decision: ValidationDecision;
+  reason: string;
+  missing_risky_attributes: string[];
+  customer_history_influenced: boolean;
+  internal_note: string;
+};
+
+export type CustomerPreference = {
+  scope: string;
+  attribute: string;
+  value: string;
+  evidence_count: number;
+  total_count: number;
+  confidence: number;
+  applied_to_query: boolean;
+};
+
 export type SearchResult = {
   rank: number;
   sku: string;
@@ -90,16 +110,36 @@ export type SearchResponse = {
     result_message: string | null;
   };
   decision: SearchDecision;
+  validation: Validation;
+  customer_preferences: CustomerPreference[];
   repair_context: RepairContext | null;
 };
 
-function authHeaders(accessToken: string) {
-  return {
-    Authorization: `Bearer ${accessToken}`,
-  };
+export type EvalMetric = {
+  key: string;
+  accuracy: number;
+  review_routing_rate: number;
+  cases: number;
+};
+
+export type EvalDiagnostics = {
+  global_accuracy: number;
+  review_routing_rate: number;
+  total_cases: number;
+  by_customer: EvalMetric[];
+  by_product_family: EvalMetric[];
+  by_attribute_type: EvalMetric[];
+};
+
+function authHeaders(accessToken?: string | null): Record<string, string> {
+  return accessToken
+    ? {
+        Authorization: `Bearer ${accessToken}`,
+      }
+    : {};
 }
 
-export async function fetchCustomers(accessToken: string): Promise<Customer[]> {
+export async function fetchCustomers(accessToken?: string | null): Promise<Customer[]> {
   const response = await fetch('/api/customers', {
     headers: authHeaders(accessToken),
   });
@@ -111,16 +151,28 @@ export async function fetchCustomers(accessToken: string): Promise<Customer[]> {
 
 export async function searchCatalog(
   query: string,
-  options: { accessToken: string; usePersonalization?: boolean },
+  options: { accessToken?: string | null; usePersonalization?: boolean; customerId?: string | null },
 ): Promise<SearchResponse> {
   const response = await fetch('/api/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(options.accessToken) },
-    body: JSON.stringify({ query, use_personalization: options.usePersonalization ?? true }),
+    body: JSON.stringify({
+      query,
+      use_personalization: options.usePersonalization ?? true,
+      customer_id: options.customerId ?? undefined,
+    }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error ?? 'Search failed');
+  }
+  return response.json();
+}
+
+export async function fetchEvalDiagnostics(): Promise<EvalDiagnostics> {
+  const response = await fetch('/api/eval');
+  if (!response.ok) {
+    throw new Error('Failed to load evaluation diagnostics');
   }
   return response.json();
 }

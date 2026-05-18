@@ -2,11 +2,15 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Database, Search, Sparkles, UserRound } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { AuthRequired, useAuth } from '../auth';
+import { CustomerPicker } from '../components/CustomerPicker';
+import { CustomerPreferencePanel } from '../components/CustomerPreferencePanel';
 import { ParsedPanel } from '../components/ParsedPanel';
 import { RepairContextPanel } from '../components/RepairContextPanel';
 import { ResultCard } from '../components/ResultCard';
+import { ValidationPanel } from '../components/ValidationPanel';
 import { Button, MetricBadge, PageSection, Panel, InputShell } from '../components/ui/primitives';
 import { fetchCustomers, searchCatalog, type Customer, type SearchResponse } from '../api';
+import { isDemoMode } from '../env';
 
 const examples = [
   'screws for bottom of MacBook Pro',
@@ -22,44 +26,68 @@ const decisionCopy = {
   'guidance-only': 'Guidance only',
 };
 
+const validationCopy = {
+  AUTO_RESPOND: 'Auto-respond',
+  SALES_REVIEW: 'Sales review',
+  DO_NOT_RESPOND: 'Do not respond',
+};
+
+const demoMode = isDemoMode();
+
 export function SearchPage() {
   const auth = useAuth();
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') ?? 'M8 flat washer';
   const [query, setQuery] = useState(initialQuery);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [usePersonalization, setUsePersonalization] = useState(true);
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedCustomer = useMemo(
+    () => customers.find((customer) => customer.id === selectedCustomerId) ?? customers[0],
+    [customers, selectedCustomerId],
+  );
   const selectedCustomerName = useMemo(
-    () => (usePersonalization ? customers[0]?.name : null),
-    [customers, usePersonalization],
+    () => {
+      if (demoMode) {
+        return selectedCustomerId ? selectedCustomer?.name : null;
+      }
+      return usePersonalization ? selectedCustomer?.name : null;
+    },
+    [selectedCustomer, selectedCustomerId, usePersonalization],
   );
 
   useEffect(() => {
-    if (!auth.accessToken) return;
-    fetchCustomers(auth.accessToken)
+    if (!demoMode && !auth.accessToken) return;
+    fetchCustomers(demoMode ? null : auth.accessToken)
       .then(setCustomers)
       .catch((err: Error) => setError(err.message));
   }, [auth.accessToken]);
 
   useEffect(() => {
-    if (!auth.accessToken) return;
-    void runSearch(initialQuery, usePersonalization);
+    if (!demoMode && !auth.accessToken) return;
+    void runSearch(initialQuery, demoMode ? Boolean(selectedCustomerId) : usePersonalization);
     // The route params are read once for initial demo state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.accessToken]);
 
-  async function runSearch(nextQuery = query, nextUsePersonalization = usePersonalization) {
-    if (!auth.accessToken) return;
+  async function runSearch(
+    nextQuery = query,
+    nextUsePersonalization = usePersonalization,
+    nextCustomerId = selectedCustomerId,
+  ) {
+    if (!demoMode && !auth.accessToken) return;
     setLoading(true);
     setError(null);
     try {
       const result = await searchCatalog(nextQuery, {
         accessToken: auth.accessToken,
-        usePersonalization: nextUsePersonalization,
+        usePersonalization: demoMode ? Boolean(nextCustomerId) : nextUsePersonalization,
+        customerId: demoMode ? nextCustomerId : null,
       });
       setResponse(result);
     } catch (err) {
@@ -76,7 +104,7 @@ export function SearchPage() {
 
   function chooseExample(value: string) {
     setQuery(value);
-    void runSearch(value, usePersonalization);
+    void runSearch(value, demoMode ? Boolean(selectedCustomerId) : usePersonalization);
   }
 
   function togglePersonalization(enabled: boolean) {
@@ -84,7 +112,12 @@ export function SearchPage() {
     void runSearch(query, enabled);
   }
 
-  if (auth.loading) {
+  function selectDemoCustomer(id: string) {
+    setSelectedCustomerId(id);
+    void runSearch(query, Boolean(id), id);
+  }
+
+  if (!demoMode && auth.loading) {
     return (
       <PageSection className="search-page" kicker="Authentication" title="Checking session.">
         <Panel>
@@ -94,13 +127,13 @@ export function SearchPage() {
     );
   }
 
-  if (!auth.accessToken) {
+  if (!demoMode && !auth.accessToken) {
     return (
       <PageSection
         className="search-page"
-        copy="Search by repair context or formal fastener specs after signing in."
-        kicker="Repair-aware retrieval"
-        title="Find the right hardware from the job you are doing."
+        copy="Validate incoming customer requests after signing in."
+        kicker="Sales validation"
+        title="Route customer requests to auto-response or sales review."
       >
         <AuthRequired />
       </PageSection>
@@ -110,9 +143,9 @@ export function SearchPage() {
   return (
     <PageSection
       className="search-page"
-      copy="Search by repair context or formal fastener specs. The app translates messy job language into catalog candidates with visible assumptions."
-      kicker="Repair-aware retrieval"
-      title="Find the right hardware from the job you are doing."
+      copy="Map messy customer request language to SKU candidates, then validate whether the system can safely respond or should route internally to sales."
+      kicker="Sales validation"
+      title="Validate the request before it reaches the customer."
     >
       <div className="hero-meta">
         <MetricBadge label="Catalog" value="1,000 SKUs" />
@@ -129,7 +162,7 @@ export function SearchPage() {
           <Panel className="search-panel">
             <form onSubmit={handleSubmit}>
               <label className="field-label" htmlFor="query">
-                Describe the product
+                Customer request
               </label>
               <InputShell icon={<Search size={20} />}>
                 <input
@@ -168,7 +201,7 @@ export function SearchPage() {
               {response && (
                 <p>
                   {response.meta.candidate_count} candidates · {response.meta.latency_ms} ms
-                  {` · ${decisionCopy[response.decision]}`}
+                  {` · ${response.validation ? validationCopy[response.validation.decision] : decisionCopy[response.decision]}`}
                   {response.meta.ambiguous_query ? ' · close scores' : ''}
                 </p>
               )}
@@ -184,7 +217,12 @@ export function SearchPage() {
                 </Panel>
               )}
               {response?.results.map((result) => (
-                <ResultCard decision={response.decision} result={result} key={result.sku} />
+                <ResultCard
+                  decision={response.decision}
+                  result={result}
+                  key={result.sku}
+                  validationDecision={response.validation.decision}
+                />
               ))}
             </div>
           </section>
@@ -199,28 +237,40 @@ export function SearchPage() {
             context={response?.repair_context ?? null}
             onChooseRewrite={chooseExample}
           />
-          <Panel className="customer-panel">
-            <div className="inline-title">
-              <UserRound size={18} />
-              <span>Customer context</span>
-            </div>
-            <label className="history-toggle">
-              <input
-                checked={usePersonalization}
-                onChange={(event) => togglePersonalization(event.target.checked)}
-                type="checkbox"
-              />
-              <span>Use my order history</span>
-            </label>
-            <p className="empty-copy">
-              {customers[0]
-                ? `${customers[0].id} · ${customers[0].profile_summary}`
-                : 'Your customer profile is loading.'}
-            </p>
-          </Panel>
+          <ValidationPanel validation={response?.validation ?? null} />
+          <CustomerPreferencePanel preferences={response?.customer_preferences ?? []} />
+          {demoMode ? (
+            <CustomerPicker
+              customers={customers}
+              filter={customerFilter}
+              onFilterChange={setCustomerFilter}
+              onSelect={selectDemoCustomer}
+              selectedId={selectedCustomerId}
+            />
+          ) : (
+            <Panel className="customer-panel">
+              <div className="inline-title">
+                <UserRound size={18} />
+                <span>Customer context</span>
+              </div>
+              <label className="history-toggle">
+                <input
+                  checked={usePersonalization}
+                  onChange={(event) => togglePersonalization(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Use my order history</span>
+              </label>
+              <p className="empty-copy">
+                {customers[0]
+                  ? `${customers[0].id} · ${customers[0].profile_summary}`
+                  : 'Your customer profile is loading.'}
+              </p>
+            </Panel>
+          )}
           <ParsedPanel parsed={response?.query.parsed ?? null} />
           {response?.meta.ambiguous_suggestions && (
-            <Panel className="suggestions-panel" title="Clarify if needed" kicker="Suggestions">
+            <Panel className="suggestions-panel" title="Internal review hints" kicker="Sales note">
               {response.meta.ambiguous_suggestions.map((suggestion) => (
                 <button type="button" key={suggestion.label} onClick={() => chooseExample(suggestion.query_rewrite)}>
                   <strong>{suggestion.label}</strong>

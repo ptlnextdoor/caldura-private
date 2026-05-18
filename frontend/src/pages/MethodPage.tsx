@@ -10,17 +10,17 @@ const steps = [
   {
     icon: <SearchCheck size={20} />,
     title: 'Rank candidates',
-    copy: 'A custom in-memory BM25 index plus parser boosts creates model closeness: the ranking strength used to order candidates.',
+    copy: 'A custom in-memory BM25 index plus parser boosts returns the top SKU candidates for the incoming customer request.',
   },
   {
     icon: <History size={20} />,
     title: 'Apply context',
-    copy: 'Customer history adds a bounded bias for previously ordered SKUs, usual product families, materials, finishes, and familiar thread sizes.',
+    copy: 'Customer history infers global and product-family-scoped material and finish preferences, but explicit request attributes always win.',
   },
   {
     icon: <Gauge size={20} />,
-    title: 'Explain confidence',
-    copy: 'Confidence is the trust gate. At 90% or higher the top result can be ready to order only if contradiction checks find no blockers.',
+    title: 'Validate response',
+    copy: 'The validation gate decides AUTO_RESPOND, SALES_REVIEW, or DO_NOT_RESPOND before any customer-facing response is sent.',
   },
 ];
 
@@ -28,9 +28,9 @@ export function MethodPage() {
   return (
     <PageSection
       className="method-page"
-      copy="The implementation favors deterministic, inspectable ranking over heavyweight retrieval infrastructure for a 1,000-row catalog."
-      kicker="Ranking method"
-      title="Simple enough to defend. Specific enough to work."
+      copy="Raw match accuracy is not enough. The system optimizes effective shipped accuracy by routing uncertain cases to humans."
+      kicker="Sales validation method"
+      title="Customer request to validated sales action."
     >
       <div className="hero-meta">
         <MetricBadge label="Catalog size" value="1,000 rows" />
@@ -53,16 +53,19 @@ export function MethodPage() {
         <Panel kicker="Tradeoffs" title="Why this shape">
           <DataRow label="Parser behavior" value="Soft boosts, never hard filters" />
           <DataRow label="Personalization" value="Capped additive ranking bias" />
+          <DataRow label="Preferences" value="Global and product-family scoped" />
           <DataRow label="Model closeness" value="Normalized rank strength, not a guarantee" />
           <DataRow label="Contradictions" value="Thread/type blocks, material/finish review" />
-          <DataRow label="Confidence" value="Order automation gate after risk checks" />
+          <DataRow label="Validation" value="Auto-respond, sales review, or do not respond" />
+          <DataRow label="Demo mode" value="Customer dropdown without OIDC" />
+          <DataRow label="Auth mode" value="JWT-scoped customer context" />
           <DataRow label="Storage" value="CSV loaded into memory at boot" />
         </Panel>
         <Panel kicker="Out of scope" title="What stayed out">
           <div className="exclusion-list">
             <span>Vector database</span>
             <span>External LLM fallback</span>
-            <span>Authentication</span>
+            <span>Learned calibration model</span>
             <span>Microservices</span>
           </div>
           <div className="method-callout">
