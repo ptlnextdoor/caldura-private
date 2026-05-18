@@ -52,6 +52,7 @@ export function MethodPage() {
       <section className="two-column-page method-detail">
         <Panel kicker="Tradeoffs" title="Why this shape">
           <DataRow label="Intake behavior" value="Line-oriented deterministic parser" />
+          <DataRow label="Email automation" value="Preview-only drafts over the same intake matcher" />
           <DataRow label="Parser behavior" value="Soft boosts, never hard filters" />
           <DataRow label="Personalization" value="Capped additive ranking bias" />
           <DataRow label="Preferences" value="Global and product-family scoped" />
@@ -77,6 +78,12 @@ export function MethodPage() {
             <BrainCircuit size={20} />
             <p>
               A confidently wrong result is worse than a low-confidence escalation, so the matcher separates ranking from the sales handoff.
+            </p>
+          </div>
+          <div className="method-callout">
+            <History size={20} />
+            <p>
+              Future production follow-up can store sales-rep draft corrections as preference evidence, but this demo deliberately stops at preview-only drafts with no persistence.
             </p>
           </div>
         </Panel>
