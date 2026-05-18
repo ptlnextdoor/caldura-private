@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ClipboardList, Database, FileText, UserRound } from 'lucide-react';
 import { AuthRequired, useAuth } from '../auth';
 import { CustomerPicker } from '../components/CustomerPicker';
+import { LiquidGlass } from '../components/ui/liquid-glass';
 import { IntakeResultsSection } from '../components/IntakeResults';
 import { ValidationPanel } from '../components/ValidationPanel';
 import { Button, DataRow, MetricBadge, PageSection, Panel } from '../components/ui/primitives';
@@ -162,44 +163,65 @@ export function IntakePage() {
       title="Sales Request Intake"
     >
       <div className="hero-meta">
-        <MetricBadge label="Extracted lines" value={response ? String(response.summary.line_count) : 'Loading'} />
-        <MetricBadge label="Auto" value={response ? String(response.summary.auto_respond_count) : 'Loading'} tone="green" />
-        <MetricBadge label="Review" value={response ? String(response.summary.sales_review_count) : 'Loading'} tone="orange" />
-        <MetricBadge label="Mode" value={selectedCustomerName ?? 'Base ranking'} tone={selectedCustomerName ? 'blue' : 'muted'} />
+        <MetricBadge
+          className="metric-badge--hero"
+          label="Extracted lines"
+          value={response ? String(response.summary.line_count) : 'Loading'}
+        />
+        <MetricBadge
+          className="metric-badge--hero"
+          label="Auto"
+          value={response ? String(response.summary.auto_respond_count) : 'Loading'}
+          tone="green"
+        />
+        <MetricBadge
+          className="metric-badge--hero"
+          label="Review"
+          value={response ? String(response.summary.sales_review_count) : 'Loading'}
+          tone="orange"
+        />
+        <MetricBadge
+          className="metric-badge--hero"
+          label="Mode"
+          value={selectedCustomerName ?? 'Base ranking'}
+          tone={selectedCustomerName ? 'blue' : 'muted'}
+        />
       </div>
 
       <section className="workspace">
         <div className="search-column">
-          <Panel className="search-panel intake-request-panel">
-            <form onSubmit={handleSubmit}>
-              <label className="field-label" htmlFor="raw-request">
-                Customer request
-              </label>
-              <div className="textarea-shell">
-                <FileText size={20} />
-                <textarea
-                  id="raw-request"
-                  value={rawRequest}
-                  onChange={(event) => setRawRequest(event.target.value)}
-                  placeholder="Paste a customer email or RFQ with one item per line"
-                  rows={8}
-                />
-              </div>
-              <div className="intake-actions">
-                <Button disabled={loading} type="submit">
-                  {loading ? 'Processing' : 'Process request'}
-                </Button>
-                <span>{response ? `${response.summary.latency_ms} ms` : 'Line-oriented deterministic parser'}</span>
-              </div>
-              <div className="example-row" aria-label="Demo request presets">
-                {presets.map((preset) => (
-                  <Button key={preset.label} onClick={() => choosePreset(preset.value)} variant="secondary">
-                    {preset.label}
+          <LiquidGlass className="hero-panel-glass" interactive>
+            <Panel className="search-panel intake-request-panel panel--glass">
+              <form onSubmit={handleSubmit}>
+                <label className="field-label" htmlFor="raw-request">
+                  Customer request
+                </label>
+                <div className="textarea-shell">
+                  <FileText size={20} />
+                  <textarea
+                    id="raw-request"
+                    value={rawRequest}
+                    onChange={(event) => setRawRequest(event.target.value)}
+                    placeholder="Paste a customer email or RFQ with one item per line"
+                    rows={8}
+                  />
+                </div>
+                <div className="intake-actions">
+                  <Button disabled={loading} type="submit">
+                    {loading ? 'Processing' : 'Process request'}
                   </Button>
-                ))}
-              </div>
-            </form>
-          </Panel>
+                  <span>{response ? `${response.summary.latency_ms} ms` : 'Line-oriented deterministic parser'}</span>
+                </div>
+                <div className="example-row" aria-label="Demo request presets">
+                  {presets.map((preset) => (
+                    <Button key={preset.label} onClick={() => choosePreset(preset.value)} variant="secondary">
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+              </form>
+            </Panel>
+          </LiquidGlass>
 
           {error && (
             <div className="alert">

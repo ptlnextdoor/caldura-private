@@ -7,6 +7,7 @@ import { CustomerPreferencePanel } from '../components/CustomerPreferencePanel';
 import { ParsedPanel } from '../components/ParsedPanel';
 import { RepairContextPanel } from '../components/RepairContextPanel';
 import { ResultCard } from '../components/ResultCard';
+import { LiquidGlass } from '../components/ui/liquid-glass';
 import { ValidationPanel } from '../components/ValidationPanel';
 import { Button, MetricBadge, PageSection, Panel, InputShell } from '../components/ui/primitives';
 import { fetchCustomers, searchCatalog, type Customer, type SearchResponse } from '../api';
@@ -148,9 +149,10 @@ export function SearchPage() {
       title="Single Catalog Search"
     >
       <div className="hero-meta">
-        <MetricBadge label="Catalog" value="1,000 SKUs" />
-        <MetricBadge label="Return" value="Top 3" tone="green" />
+        <MetricBadge className="metric-badge--hero" label="Catalog" value="1,000 SKUs" />
+        <MetricBadge className="metric-badge--hero" label="Return" value="Top 3" tone="green" />
         <MetricBadge
+          className="metric-badge--hero"
           label="Mode"
           value={selectedCustomerName ? selectedCustomerName : 'Base ranking'}
           tone={selectedCustomerName ? 'blue' : 'muted'}
@@ -159,31 +161,33 @@ export function SearchPage() {
 
       <section className="workspace">
         <div className="search-column">
-          <Panel className="search-panel">
-            <form onSubmit={handleSubmit}>
-              <label className="field-label" htmlFor="query">
-                Customer request
-              </label>
-              <InputShell icon={<Search size={20} />}>
-                <input
-                  id="query"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Example: 1/4-20 x 3/4 hex cap screw zinc"
-                />
-                <Button disabled={loading} type="submit">
-                  {loading ? 'Searching' : 'Search'}
-                </Button>
-              </InputShell>
-              <div className="example-row" aria-label="Example queries">
-                {examples.map((example) => (
-                  <Button key={example} onClick={() => chooseExample(example)} variant="secondary">
-                    {example}
+          <LiquidGlass className="hero-panel-glass" interactive>
+            <Panel className="search-panel panel--glass">
+              <form onSubmit={handleSubmit}>
+                <label className="field-label" htmlFor="query">
+                  Customer request
+                </label>
+                <InputShell icon={<Search size={20} />}>
+                  <input
+                    id="query"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Example: 1/4-20 x 3/4 hex cap screw zinc"
+                  />
+                  <Button disabled={loading} type="submit">
+                    {loading ? 'Searching' : 'Search'}
                   </Button>
-                ))}
-              </div>
-            </form>
-          </Panel>
+                </InputShell>
+                <div className="example-row" aria-label="Example queries">
+                  {examples.map((example) => (
+                    <Button key={example} onClick={() => chooseExample(example)} variant="secondary">
+                      {example}
+                    </Button>
+                  ))}
+                </div>
+              </form>
+            </Panel>
+          </LiquidGlass>
 
           {error && (
             <div className="alert">

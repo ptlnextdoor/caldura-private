@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { isDemoMode } from '../env';
+import { LiquidGlass, LiquidGlassFilter } from './ui/liquid-glass';
 import { Button } from './ui/primitives';
 
 const demoMode = isDemoMode();
@@ -34,9 +35,10 @@ export function AppShell() {
 
   return (
     <>
+      <LiquidGlassFilter />
       <FlowingLines />
       <nav className="top-nav" aria-label="Primary navigation">
-        <div className="nav-inner">
+        <LiquidGlass className="nav-inner nav-glass" contentClassName="nav-inner-content" interactive>
           <NavLink className="brand" to="/">
             <LogoMark />
             <span>Catalog Match</span>
@@ -69,7 +71,7 @@ export function AppShell() {
               )
             ) : null}
           </div>
-        </div>
+        </LiquidGlass>
       </nav>
       <main className="app-shell">
         <Outlet />

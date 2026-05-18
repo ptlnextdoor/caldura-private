@@ -93,11 +93,12 @@ type MetricBadgeProps = {
   value: string;
   tone?: 'blue' | 'green' | 'orange' | 'muted';
   title?: string;
+  className?: string;
 };
 
-export function MetricBadge({ label, value, tone = 'blue', title }: MetricBadgeProps) {
+export function MetricBadge({ label, value, tone = 'blue', title, className = '' }: MetricBadgeProps) {
   return (
-    <div className={`metric-badge metric-${tone}`} title={title}>
+    <div className={`metric-badge metric-${tone} ${className}`} title={title}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
