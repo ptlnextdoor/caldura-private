@@ -42,6 +42,24 @@ Auth-bound mode is the secure default (`DEMO_MODE=false`, `VITE_DEMO_MODE=false`
 
 For local or public demo mode, set `APP_ENV=demo`, `DEMO_MODE=true`, and `VITE_DEMO_MODE=true`. In this explicit mode, no OIDC setup is required: `/customers` returns the seeded demo customer directory and `/search` accepts an optional `customer_id` from the searchable dropdown. Production environments must use `APP_ENV=production`, `DEMO_MODE=false`, and `VITE_DEMO_MODE=false`; `APP_ENV=production` blocks demo mode even if `DEMO_MODE=true` is accidentally set.
 
+Vercel demo deployments should use:
+
+```env
+APP_ENV=demo
+DEMO_MODE=true
+VITE_DEMO_MODE=true
+```
+
+Real customer or production deployments should use:
+
+```env
+APP_ENV=production
+DEMO_MODE=false
+VITE_DEMO_MODE=false
+```
+
+`NODE_ENV=production` is expected on Vercel builds and does not control demo access. `APP_ENV` is the app-level deployment guard: use `APP_ENV=demo` for the public seeded demo and `APP_ENV=production` for customer/auth-bound environments.
+
 ## API
 
 `POST /search`
@@ -83,6 +101,19 @@ The response also includes risk-control evidence on each result: `match_evidence
 When a customer is selected, `customer_preferences` exposes inferred global and product-family-scoped preferences from order history. Each preference includes scope, attribute, value, evidence count, total count, confidence, and whether it applied to the current query. Explicit request attributes always win over inferred preference.
 
 Customer personalization is demo-selectable or authorization-bound depending on mode. Demo mode exists only to satisfy the take-home customer dropdown requirement without requiring OIDC. Auth-bound mode derives the customer from the validated token claim and ignores any stray `customer_id` field in the request body.
+
+## Deployed Demo Smoke Test
+
+Run this checklist against the deployed Vercel demo URL before sharing it:
+
+- `/search` works without login in demo mode.
+- `/customers` returns seeded demo customers.
+- The customer dropdown loads and filters seeded customers.
+- Re-running the same query after refresh returns the same top three SKUs.
+- `M8 steel flat washer` returns `sales-review` and does not allow auto-order.
+- `same washers as last time` uses customer history after selecting a demo customer.
+- `/eval` works in demo mode.
+- Production config blocks demo behavior when `APP_ENV=production`.
 
 ## Verification
 

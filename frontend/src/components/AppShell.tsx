@@ -1,6 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { isDemoMode } from '../env';
 import { Button } from './ui/primitives';
+
+const demoMode = isDemoMode();
 
 function LogoMark() {
   return (
@@ -47,6 +50,7 @@ export function AppShell() {
             <NavLink to="/method">Method</NavLink>
           </div>
           <div className="auth-actions">
+            {demoMode && <span className="demo-mode-badge">Demo Mode · Seeded Data Only</span>}
             {auth.accessToken ? (
               <>
                 <span>{label}</span>
@@ -54,11 +58,11 @@ export function AppShell() {
                   Sign out
                 </Button>
               </>
-            ) : (
+            ) : !demoMode ? (
               <Button disabled={!auth.configured || auth.loading} onClick={() => void auth.signIn()} variant="ghost">
                 Sign in
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
       </nav>
