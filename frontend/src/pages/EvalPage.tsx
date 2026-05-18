@@ -90,7 +90,7 @@ export function EvalPage() {
       </section>
 
       {diagnostics && (
-        <section className="two-column-page">
+        <section className="two-column-page two-column-page--balanced">
           <MetricTable title="By product family" metrics={diagnostics.by_product_family} />
           <MetricTable title="By attribute type" metrics={diagnostics.by_attribute_type} />
         </section>

@@ -198,6 +198,16 @@ a {
   white-space: nowrap;
 }
 
+.auth-unconfigured {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(100, 116, 139, 0.24);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .nav-links a {
   min-height: 34px;
   padding: 0 13px;
@@ -420,7 +430,7 @@ a {
 }
 
 .btn:disabled {
-  cursor: progress;
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
@@ -1037,6 +1047,10 @@ a {
   align-items: start;
 }
 
+.two-column-page--balanced {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .customer-directory {
   min-height: 520px;
 }
@@ -1101,17 +1115,37 @@ a {
 }
 
 .exclusion-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .exclusion-list span {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   border: 1px solid var(--border);
-  padding: 7px 9px;
+  border-radius: 12px;
+  padding: 8px 12px;
   background: rgba(255, 255, 255, 0.5);
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.35;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .exclusion-list span {
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .exclusion-list span:hover {
+    border-color: rgba(5, 98, 239, 0.32);
+    background: rgba(5, 98, 239, 0.06);
+    box-shadow: 0 1px 0 rgba(5, 98, 239, 0.06);
+  }
 }
 
 .method-callout {
@@ -1174,9 +1208,20 @@ a {
   font-size: 12px;
 }
 
+.eval-row strong,
+.eval-row span {
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.eval-row strong {
+  word-break: break-word;
+}
+
 .eval-row {
-  grid-template-columns: minmax(0, 1.4fr) repeat(3, auto);
-  align-items: center;
+  grid-template-columns: minmax(9.5rem, 1.4fr) repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 8px 12px;
 }
 
 @media (max-width: 980px) {
@@ -1281,6 +1326,10 @@ a {
   }
 
   .eval-row {
+    grid-template-columns: 1fr;
+  }
+
+  .exclusion-list {
     grid-template-columns: 1fr;
   }
 

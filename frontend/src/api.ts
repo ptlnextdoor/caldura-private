@@ -1,3 +1,8 @@
+import { isDemoMode } from './env';
+
+const DEMO_SPA_401_HINT =
+  'API returned 401 while the SPA is in demo mode. Start catalog-server from the repository root with DEMO_MODE=true and APP_ENV=demo (same root `.env` as Vite reads), then restart.';
+
 export type AttrSpec = {
   thread_spec: string | null;
   thread_size_normalized: number | null;
@@ -144,6 +149,9 @@ export async function fetchCustomers(accessToken?: string | null): Promise<Custo
     headers: authHeaders(accessToken),
   });
   if (!response.ok) {
+    if (response.status === 401 && isDemoMode()) {
+      throw new Error(DEMO_SPA_401_HINT);
+    }
     throw new Error('Failed to load customers');
   }
   return response.json();
@@ -164,6 +172,9 @@ export async function searchCatalog(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
+    if (response.status === 401 && isDemoMode()) {
+      throw new Error(DEMO_SPA_401_HINT);
+    }
     throw new Error(body.error ?? 'Search failed');
   }
   return response.json();
@@ -172,6 +183,9 @@ export async function searchCatalog(
 export async function fetchEvalDiagnostics(): Promise<EvalDiagnostics> {
   const response = await fetch('/api/eval');
   if (!response.ok) {
+    if (response.status === 401 && isDemoMode()) {
+      throw new Error(DEMO_SPA_401_HINT);
+    }
     throw new Error('Failed to load evaluation diagnostics');
   }
   return response.json();

@@ -22,6 +22,23 @@ Most repair contexts translate to canonical catalog queries, expose missing fact
 
 ## Run Locally
 
+### First run (seeded demo)
+
+1. Copy [.env.example](.env.example) to **`.env` in the repository root** (same directory as `Cargo.toml`). `catalog-server` loads that file via `dotenvy` when you `cargo run` from the root. Vite reads the repo-root env and also merges `frontend/.env*` for SPA-only local overrides.
+2. For a local demo without OIDC, set at least:
+
+```env
+APP_ENV=demo
+DEMO_MODE=true
+VITE_DEMO_MODE=true
+```
+
+3. Start the API, then the SPA (see below).
+
+`DEMO_MODE=true` alone only enables backend demo behavior. The SPA needs `VITE_DEMO_MODE=true` at Vite startup; restart `npm run dev` after changing any `.env` file.
+
+### Backend and frontend dev servers
+
 Backend:
 
 ```bash
