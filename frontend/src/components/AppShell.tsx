@@ -47,6 +47,7 @@ export function AppShell() {
             <NavLink to="/" end>
               Intake
             </NavLink>
+            <NavLink to="/email">Email</NavLink>
             <NavLink to="/search">Search</NavLink>
             <NavLink to="/eval">Eval</NavLink>
             <NavLink to="/method">Method</NavLink>

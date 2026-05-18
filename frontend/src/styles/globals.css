@@ -517,6 +517,22 @@ a {
   margin-top: 14px;
 }
 
+.input-grid,
+.draft-grid,
+.draft-meta-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.input-grid,
+.draft-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.input-grid {
+  margin-bottom: 14px;
+}
+
 .intake-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1057,6 +1073,44 @@ a {
   box-shadow: none;
 }
 
+.draft-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.draft-panel-content,
+.blocked-reasons {
+  display: grid;
+  gap: 12px;
+}
+
+.draft-body {
+  margin: 0;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.54);
+  padding: 14px;
+  color: var(--text);
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reason-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.reason-list li::marker {
+  color: var(--orange);
+}
+
 .empty-results-panel h3 {
   margin: 0;
   font-family: "Space Grotesk", sans-serif;
@@ -1422,7 +1476,9 @@ a {
 @media (max-width: 980px) {
   .workspace,
   .two-column-page,
-  .method-grid {
+  .method-grid,
+  .input-grid,
+  .draft-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1533,6 +1589,10 @@ a {
 
   .intake-line-heading {
     display: grid;
+  }
+
+  .draft-meta-grid {
+    grid-template-columns: 1fr;
   }
 
   .line-decision {
