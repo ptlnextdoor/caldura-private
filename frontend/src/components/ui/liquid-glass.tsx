@@ -38,7 +38,7 @@ export function LiquidGlass({
     >
       <div
         aria-hidden="true"
-        className="absolute inset-0 z-0 overflow-hidden"
+        className="liquid-glass-distortion absolute inset-0 z-0 overflow-hidden"
         style={{
           borderRadius: "inherit",
           backdropFilter: "blur(3px)",
@@ -48,7 +48,7 @@ export function LiquidGlass({
       />
       <div
         aria-hidden="true"
-        className="absolute inset-0 z-10"
+        className="liquid-glass-surface absolute inset-0 z-10"
         style={{
           borderRadius: "inherit",
           background: "rgba(255, 255, 255, 0.25)",
@@ -56,7 +56,7 @@ export function LiquidGlass({
       />
       <div
         aria-hidden="true"
-        className="absolute inset-0 z-20 overflow-hidden"
+        className="liquid-glass-highlight absolute inset-0 z-20 overflow-hidden"
         style={{
           borderRadius: "inherit",
           boxShadow:
