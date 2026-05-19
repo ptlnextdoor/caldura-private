@@ -1114,6 +1114,25 @@ a {
   gap: 12px;
 }
 
+.email-page .email-artifacts .section-heading {
+  display: grid;
+  justify-content: stretch;
+  gap: 8px;
+}
+
+.email-page .email-artifacts .section-heading h2 {
+  max-width: none;
+}
+
+.email-page .email-artifacts .section-heading p {
+  max-width: 620px;
+  text-align: left;
+}
+
+.email-page .draft-grid {
+  grid-template-columns: 1fr;
+}
+
 .email-page .draft-panel .panel-heading {
   margin-bottom: 2px;
 }
