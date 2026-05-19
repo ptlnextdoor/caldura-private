@@ -106,7 +106,7 @@ function DeliveryGuardPanel({ guard }: { guard: DeliveryGuard | null }) {
       <DataRow label="Recipient allowlisted" value={guard.recipient_allowlisted ? 'yes' : 'no'} />
       <DataRow label="Live send eligible" value={guard.can_send_customer_email ? 'yes' : 'no'} />
       <p className="internal-note">
-        Preview mode never sends email in this demo. The guard only reports whether a future live path would be eligible.
+        Manual previews never send. AgentMail inbound processing only replies to customers when every guard condition passes.
       </p>
       {guard.blocked_reasons.length > 0 && (
         <div className="blocked-reasons">
@@ -295,7 +295,7 @@ export function EmailPage() {
           tone={response?.recommended_action === 'DRAFT_CUSTOMER_CONFIRMATION' ? 'green' : 'orange'}
         />
         <MetricBadge label="Parsed lines" value={response ? String(response.intake.summary.line_count) : 'Loading'} />
-        <MetricBadge label="Workflow" value="Drafts only" tone="muted" />
+        <MetricBadge label="Workflow" value="Preview + webhook" tone="muted" />
         <MetricBadge
           label="Inbox"
           value={emailStatus?.inbox_id ?? 'sales@ptlnextdoor.com'}
