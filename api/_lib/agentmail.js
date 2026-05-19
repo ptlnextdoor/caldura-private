@@ -312,12 +312,9 @@ function compactObject(value) {
 
 function svixSecretBytes(secret) {
   const normalized = String(secret);
-  const value = normalized.startsWith('whsec_') ? normalized.slice('whsec_'.length) : normalized;
-  try {
-    return Buffer.from(value, 'base64');
-  } catch {
-    return Buffer.from(normalized);
-  }
+  return normalized.startsWith('whsec_')
+    ? Buffer.from(normalized.slice('whsec_'.length), 'base64')
+    : Buffer.from(normalized);
 }
 
 function timingSafeEqualBase64(expected, actualBase64) {
