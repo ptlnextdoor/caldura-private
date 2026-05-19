@@ -194,6 +194,17 @@ export type EmailPreviewResponse = {
   delivery_guard: DeliveryGuard;
 };
 
+export type EmailStatus = {
+  provider: 'agentmail' | string;
+  inbox_id: string | null;
+  api_key_configured: boolean;
+  webhook_configured: boolean;
+  email_mode: string;
+  send_enabled: boolean;
+  sales_rep_configured: boolean;
+  recipient_allowlist_count: number;
+};
+
 function authHeaders(accessToken?: string | null): Record<string, string> {
   return accessToken
     ? {
@@ -293,6 +304,14 @@ export async function fetchEvalDiagnostics(): Promise<EvalDiagnostics> {
       throw new Error(DEMO_SPA_401_HINT);
     }
     throw new Error('Failed to load evaluation diagnostics');
+  }
+  return response.json();
+}
+
+export async function fetchEmailStatus(): Promise<EmailStatus> {
+  const response = await fetch('/api/email-status');
+  if (!response.ok) {
+    throw new Error('Failed to load email status');
   }
   return response.json();
 }

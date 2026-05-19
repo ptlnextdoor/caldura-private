@@ -20,6 +20,15 @@ export function emailSettings() {
   };
 }
 
+export function agentMailSettings() {
+  return {
+    api_key: normalizedString(process.env.AGENTMAIL_API_KEY),
+    inbox_id: normalizedString(process.env.AGENTMAIL_INBOX_ID) ?? 'sales@ptlnextdoor.com',
+    webhook_secret: normalizedString(process.env.AGENTMAIL_WEBHOOK_SECRET),
+    base_url: normalizedString(process.env.AGENTMAIL_BASE_URL) ?? 'https://api.agentmail.to/v0',
+  };
+}
+
 function truthy(value) {
   return ['1', 'true', 'yes'].includes(String(value ?? 'false').trim().toLowerCase());
 }

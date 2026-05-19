@@ -8,10 +8,12 @@ import { Button, DataRow, InputShell, MetricBadge, PageSection, Panel } from '..
 import {
   emailPreviewRequest,
   fetchCustomers,
+  fetchEmailStatus,
   type Customer,
   type DeliveryGuard,
   type EmailDraft,
   type EmailPreviewResponse,
+  type EmailStatus,
 } from '../api';
 import { isDemoMode } from '../env';
 
@@ -120,6 +122,28 @@ function DeliveryGuardPanel({ guard }: { guard: DeliveryGuard | null }) {
   );
 }
 
+function AgentMailStatusPanel({ status }: { status: EmailStatus | null }) {
+  return (
+    <Panel className="delivery-guard-panel" kicker="AgentMail" title="Live inbox connection">
+      {status ? (
+        <>
+          <DataRow label="Inbox" value={status.inbox_id ?? 'not configured'} />
+          <DataRow label="API key" value={status.api_key_configured ? 'configured' : 'missing'} />
+          <DataRow label="Webhook" value={status.webhook_configured ? 'verified endpoint configured' : 'secret missing'} />
+          <DataRow label="Live replies" value={status.email_mode === 'live' && status.send_enabled ? 'eligible when allowlisted' : 'guarded'} />
+          <DataRow label="Allowlist" value={`${status.recipient_allowlist_count} recipient${status.recipient_allowlist_count === 1 ? '' : 's'}`} />
+        </>
+      ) : (
+        <p className="empty-copy">Loading the safe AgentMail configuration summary.</p>
+      )}
+      <p className="internal-note">
+        Incoming mail is handled by AgentMail. Customer replies still require AUTO_RESPOND, live mode,
+        send enabled, and an allowlisted sender.
+      </p>
+    </Panel>
+  );
+}
+
 export function EmailPage() {
   const auth = useAuth();
   const [fromEmail, setFromEmail] = useState(defaultEmail.fromEmail);
@@ -130,6 +154,7 @@ export function EmailPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState(demoMode ? 'CUST-001' : '');
   const [usePersonalization, setUsePersonalization] = useState(true);
   const [response, setResponse] = useState<EmailPreviewResponse | null>(null);
+  const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,6 +175,12 @@ export function EmailPage() {
       .then(setCustomers)
       .catch((err: Error) => setError(err.message));
   }, [auth.accessToken]);
+
+  useEffect(() => {
+    fetchEmailStatus()
+      .then(setEmailStatus)
+      .catch((err: Error) => setError(err.message));
+  }, []);
 
   useEffect(() => {
     if (!demoMode && !auth.accessToken) return;
@@ -266,9 +297,9 @@ export function EmailPage() {
         <MetricBadge label="Parsed lines" value={response ? String(response.intake.summary.line_count) : 'Loading'} />
         <MetricBadge label="Workflow" value="Drafts only" tone="muted" />
         <MetricBadge
-          label="Email mode"
-          value={response ? response.delivery_guard.email_mode : 'preview'}
-          tone={response?.delivery_guard.email_mode === 'live' ? 'blue' : 'muted'}
+          label="Inbox"
+          value={emailStatus?.inbox_id ?? 'sales@ptlnextdoor.com'}
+          tone={emailStatus?.api_key_configured ? 'blue' : 'muted'}
         />
         <MetricBadge label="Customer" value={selectedCustomerName ?? 'Base ranking'} tone={selectedCustomerName ? 'blue' : 'muted'} />
       </div>
@@ -384,6 +415,7 @@ export function EmailPage() {
             </span>
           </Panel>
           <ValidationPanel validation={response?.intake.overall_validation ?? null} />
+          <AgentMailStatusPanel status={emailStatus} />
           <DeliveryGuardPanel guard={response?.delivery_guard ?? null} />
           {response && (
             <Panel className="intake-summary-panel">
