@@ -53,7 +53,7 @@ export function AppShell() {
             <NavLink to="/method">Method</NavLink>
           </div>
           <div className="auth-actions">
-            {demoMode && <span className="demo-mode-badge">Demo Mode · Seeded Data Only</span>}
+            {demoMode && <span className="demo-mode-badge">Paragon Data Workspace</span>}
             {auth.accessToken ? (
               <>
                 <span>{label}</span>

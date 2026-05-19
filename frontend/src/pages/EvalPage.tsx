@@ -59,11 +59,11 @@ function CustomerHealth({ metrics }: { metrics: EvalMetric[] }) {
 
 function DiagnosticsUnavailable({ error }: { error: string | null }) {
   return (
-    <Panel className="eval-unavailable-panel" kicker={error ? 'Fallback state' : 'Loading'} title={error ? 'Diagnostics unavailable' : 'Loading seeded diagnostics'}>
+    <Panel className="eval-unavailable-panel" kicker={error ? 'Fallback state' : 'Loading'} title={error ? 'Diagnostics unavailable' : 'Loading Paragon diagnostics'}>
       <p className="empty-copy">
         {error
-          ? 'The dashboard can still explain what the eval is meant to measure, but the seeded metrics did not load in this session.'
-          : 'Seeded diagnostics are loading. The page remains usable because the evaluation purpose is independent of the fetch state.'}
+          ? 'The dashboard can still explain what the eval is meant to measure, but the Paragon dataset metrics did not load in this session.'
+          : 'Paragon dataset diagnostics are loading. The page remains usable because the evaluation purpose is independent of the fetch state.'}
       </p>
       {error && <DataRow label="API status" value={error} />}
     </Panel>
@@ -105,14 +105,14 @@ export function EvalPage() {
     return (
       <PageSection
         className="eval-page"
-        copy="Safety diagnostics are demo-only until internal/admin authorization exists."
+        copy="Paragon dataset diagnostics are available in explicit demo mode until internal/admin authorization exists."
         kicker="Safety evaluation"
         title="Safety Evaluation Dashboard"
       >
         <Panel className="validation-panel">
           <p className="empty-copy">
             Set APP_ENV=demo, DEMO_MODE=true, and VITE_DEMO_MODE=true only for an explicit
-            demo environment to view seeded eval diagnostics.
+            demo environment to view Paragon dataset diagnostics.
           </p>
         </Panel>
       </PageSection>
@@ -122,7 +122,7 @@ export function EvalPage() {
   return (
     <PageSection
       className="eval-page"
-      copy="Measure whether Caldura knows when to answer, when to route to sales, and when to block unsafe requests. The seeded eval separates decision-gate safety from raw SKU ranking."
+      copy="Measure whether Caldura knows when to answer, when to route to sales, and when to block unsafe requests. The Paragon-provided evaluation set separates decision-gate safety from raw SKU ranking."
       kicker="Safety evaluation"
       title="Safety Evaluation Dashboard"
     >

@@ -191,7 +191,7 @@ export function EmailPage() {
       usePersonalization: demoMode ? Boolean(selectedCustomerId) : usePersonalization,
       customerId: selectedCustomerId,
     });
-    // Initial demo state is intentionally seeded once on page load.
+    // Initial demo state is intentionally initialized once on page load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.accessToken]);
 

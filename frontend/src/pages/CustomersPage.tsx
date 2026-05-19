@@ -63,7 +63,7 @@ export function CustomersPage() {
           {error && <p className="error-copy">{error}</p>}
           <p className="empty-copy">
             {demoMode
-              ? 'Demo mode exposes the seeded customer directory so the stretch dropdown can be exercised without OIDC.'
+              ? 'Demo mode exposes the Paragon-provided customer directory so the stretch dropdown can be exercised without OIDC.'
               : 'The API no longer exposes a cross-customer directory. Search requests derive the customer context from your validated access token.'}
           </p>
         </Panel>

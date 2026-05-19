@@ -17,7 +17,7 @@ const steps = [
   {
     icon: <History size={20} />,
     title: 'Apply customer context',
-    copy: 'Use seeded order history as a capped disambiguation signal when the request omits material, finish, or family detail.',
+    copy: 'Use Paragon-provided order history as a capped disambiguation signal when the request omits material, finish, or family detail.',
   },
   {
     icon: <Gauge size={20} />,

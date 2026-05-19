@@ -16,7 +16,7 @@ inbound customer email -> intake matcher -> validation gate -> customer confirma
 
 Raw match accuracy is not enough. The system optimizes effective shipped accuracy by routing uncertain cases to humans before a wrong response reaches the buyer.
 
-The demo also includes a seeded repair-context layer for queries where users know the job, not the fastener name. Example repair queries:
+The demo also includes a Paragon-provided repair-context layer for queries where users know the job, not the fastener name. Example repair queries:
 
 - `screws for bottom of MacBook Pro`
 - `bike bottle cage bolts stainless`
@@ -28,7 +28,7 @@ Most repair contexts translate to canonical catalog queries, expose missing fact
 
 ## Run Locally
 
-### First run (seeded demo)
+### First run (Paragon dataset demo)
 
 1. Copy [.env.example](.env.example) to **`.env` in the repository root** (same directory as `Cargo.toml`). `catalog-server` loads that file via `dotenvy` when you `cargo run` from the root. Vite reads the repo-root env and also merges `frontend/.env*` for SPA-only local overrides.
 2. For a local demo without OIDC, set at least:
@@ -65,7 +65,7 @@ Open `http://127.0.0.1:5173`. The Vite dev server proxies `/api/*` to the Rust s
 
 Auth-bound mode is the secure default (`DEMO_MODE=false`, `VITE_DEMO_MODE=false`). In this mode both API implementations require an OIDC/JWT bearer token for `/search` and `/customers`. Configure `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_JWKS_URL`, and `AUTH_CUSTOMER_CLAIM` on the API side. Configure `VITE_OIDC_AUTHORITY`, `VITE_OIDC_CLIENT_ID`, and `VITE_OIDC_REDIRECT_URI` for the SPA.
 
-For local or public demo mode, set `APP_ENV=demo`, `DEMO_MODE=true`, and `VITE_DEMO_MODE=true`. In this explicit mode, no OIDC setup is required: `/customers` returns the seeded demo customer directory and `/search` accepts an optional `customer_id` from the searchable dropdown. Production environments must use `APP_ENV=production`, `DEMO_MODE=false`, and `VITE_DEMO_MODE=false`; `APP_ENV=production` blocks demo mode even if `DEMO_MODE=true` is accidentally set.
+For local or public demo mode, set `APP_ENV=demo`, `DEMO_MODE=true`, and `VITE_DEMO_MODE=true`. In this explicit mode, no OIDC setup is required: `/customers` returns the Paragon-provided customer directory and `/search` accepts an optional `customer_id` from the searchable dropdown. Production environments must use `APP_ENV=production`, `DEMO_MODE=false`, and `VITE_DEMO_MODE=false`; `APP_ENV=production` blocks demo mode even if `DEMO_MODE=true` is accidentally set.
 
 Vercel demo deployments should use:
 
@@ -83,7 +83,7 @@ DEMO_MODE=false
 VITE_DEMO_MODE=false
 ```
 
-`NODE_ENV=production` is expected on Vercel builds and does not control demo access. `APP_ENV` is the app-level deployment guard: use `APP_ENV=demo` for the public seeded demo and `APP_ENV=production` for customer/auth-bound environments.
+`NODE_ENV=production` is expected on Vercel builds and does not control demo access. `APP_ENV` is the app-level deployment guard: use `APP_ENV=demo` for the public Paragon dataset demo and `APP_ENV=production` for customer/auth-bound environments.
 
 ## API
 
@@ -125,13 +125,13 @@ Wraps the existing intake matcher without changing it. The response includes the
 }
 ```
 
-In demo mode, `customer_id` selects one of the seeded demo customers. In auth-bound mode, the API ignores caller-supplied `customer_id` and derives customer context from the validated token claim.
+In demo mode, `customer_id` selects one of the Paragon-provided customers. In auth-bound mode, the API ignores caller-supplied `customer_id` and derives customer context from the validated token claim.
 
-`GET /customers` returns all seeded customers in demo mode and only the authenticated customer's profile summary in auth-bound mode.
+`GET /customers` returns all Paragon-provided customers in demo mode and only the authenticated customer's profile summary in auth-bound mode.
 
 `GET /health` returns server status and catalog size.
 
-`GET /eval` returns deterministic seeded diagnostics only in explicit demo mode: global validation accuracy, review-routing rate, breakdowns by customer, product family, and attribute type, plus customer health slices with top review/failure reasons. Outside demo mode it returns `403` with code `diagnostics_disabled` until an internal/admin authorization model exists.
+`GET /eval` returns deterministic diagnostics over the Paragon-provided evaluation set only in explicit demo mode: global validation accuracy, review-routing rate, breakdowns by customer, product family, and attribute type, plus customer health slices with top review/failure reasons. Outside demo mode it returns `403` with code `diagnostics_disabled` until an internal/admin authorization model exists.
 
 Repair-context searches include an optional `repair_context` object with the detected repair intent, match behavior, canonical query when catalog matching is allowed, internal clarification hints, kit idea, warnings, safety class, and provenance. Guidance-only contexts return `results: []` with a `no_verified_stocked_match` meta flag rather than substituting plausible but wrong generic SKUs. Direct fastener-spec searches return `repair_context: null`.
 
@@ -180,8 +180,8 @@ Run this checklist against the deployed Vercel demo URL before sharing it:
 - Homepage intake workbench works without login in demo mode.
 - `POST /api/intake` works without login in demo mode.
 - `/search` works without login in demo mode.
-- `/customers` returns seeded demo customers.
-- The customer dropdown loads and filters seeded customers.
+- `/customers` returns Paragon-provided customers.
+- The customer dropdown loads and filters Paragon-provided customers.
 - Re-running the same query after refresh returns the same top three SKUs.
 - `M8 steel flat washer` returns `sales-review` and does not allow auto-order.
 - `same washers as last time` uses customer history after selecting a demo customer.
