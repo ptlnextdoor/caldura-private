@@ -1,13 +1,13 @@
 <claude-mem-context>
 # Memory Context
 
-# [caldura/vancouver] recent context, 2026-05-19 9:48am PDT
+# [caldura/vancouver] recent context, 2026-05-19 10:56am PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 16 obs (6,061t read) | 299,228t work | 98% savings
+Stats: 25 obs (8,403t read) | 313,865t work | 97% savings
 
 ### May 18, 2026
 581 10:24p ✅ Public README Creation with Header Image
@@ -27,6 +27,15 @@ Stats: 16 obs (6,061t read) | 299,228t work | 98% savings
 727 " ✅ Smoke-Test Validation: Dev Server Up, Screenshots Captured for /, /search, /email
 728 " ✅ All Six Smoke-Check Routes Rendered Without Crash After Glass Morph Fix
 729 9:20a 🔵 Playwright CLI Screenshot Does Not Support Hover State Capture
+730 9:48a ✅ Deployed to Vercel and Pushed to Main Branch
+732 9:49a 🔵 Active Changes on upstream-main-hotfix Branch Prior to Deployment
+734 " 🟣 Liquid Glass Panel Morphing Restored and Pushed to Main
+735 " 🔵 caldura/vancouver GitHub Remote Confirmed as ptlnextdoor/caldura-private
+737 9:50a 🔵 Vercel Project for caldura/vancouver is Named "shanghai"
+738 " 🔵 Vercel Build Environment Details for shanghai/caldura Project
+739 " ✅ Vercel Production Deployment of "shanghai" Completed Successfully
+740 " 🔵 Production URL Health Check Confirmed HTTP 200 with Cache HIT
+741 9:51a 🔵 Production CSS Verified: Liquid Glass Styles Live with Minified scale() Values
 
-Access 299k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 314k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
