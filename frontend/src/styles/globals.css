@@ -1107,6 +1107,11 @@ a {
   gap: 12px;
 }
 
+.email-artifacts {
+  display: grid;
+  gap: 12px;
+}
+
 .draft-panel-content,
 .blocked-reasons {
   display: grid;
@@ -1371,6 +1376,69 @@ a {
   gap: 10px;
 }
 
+.method-intro-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.method-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.method-flow,
+.method-table {
+  display: grid;
+  gap: 8px;
+}
+
+.method-flow span,
+.method-table-row {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.method-flow span {
+  position: relative;
+  padding: 10px 12px 10px 34px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.method-flow span::before {
+  position: absolute;
+  left: 12px;
+  color: var(--blue);
+  content: "↓";
+}
+
+.method-flow span:first-child::before {
+  content: "→";
+}
+
+.method-table-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+.method-table-row strong {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+
+.method-table-row span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .exclusion-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1500,6 +1568,17 @@ a {
 
 .health-row small {
   line-height: 1.4;
+}
+
+.eval-check-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.eval-unavailable-panel {
+  display: grid;
+  gap: 12px;
 }
 
 @media (max-width: 980px) {
@@ -1637,6 +1716,10 @@ a {
   }
 
   .eval-row {
+    grid-template-columns: 1fr;
+  }
+
+  .method-table-row {
     grid-template-columns: 1fr;
   }
 

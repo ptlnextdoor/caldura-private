@@ -13,11 +13,12 @@ import { fetchCustomers, searchCatalog, type Customer, type SearchResponse } fro
 import { isDemoMode } from '../env';
 
 const examples = [
+  'M8 flat washer',
+  'qty 12 SHCS 7/16 x 2-1/2',
+  '1/4-20 x 3/4 hex cap screw zinc',
+  'M8 x 50mm BHCS black oxide',
+  'same washers as last time',
   'screws for bottom of MacBook Pro',
-  'bike bottle cage bolts stainless',
-  'boat hatch screws rusted from saltwater',
-  'IKEA missing bed frame bolts',
-  'same screws we used for pump guard',
 ];
 
 const decisionCopy = {
@@ -131,9 +132,9 @@ export function SearchPage() {
     return (
       <PageSection
         className="search-page"
-        copy="Validate one catalog query against the matcher."
-        kicker="Single search"
-        title="Single Catalog Search"
+        copy="Test one fastener phrase at a time. This page shows parsing, top-3 ranking, confidence, repair context, and customer-history influence before the query appears inside an RFQ or email workflow."
+        kicker="SKU lookup sandbox"
+        title="Investigate one catalog query."
       >
         <AuthRequired />
       </PageSection>
@@ -143,13 +144,14 @@ export function SearchPage() {
   return (
     <PageSection
       className="search-page"
-      copy="Validate one catalog query against the matcher."
-      kicker="Single search"
-      title="Single Catalog Search"
+      copy="Test one fastener phrase at a time. This page shows parsing, top-3 ranking, confidence, repair context, and customer-history influence before the query appears inside an RFQ or email workflow."
+      kicker="SKU lookup sandbox"
+      title="Investigate one catalog query."
     >
       <div className="hero-meta">
         <MetricBadge className="metric-badge--hero" label="Catalog" value="1,000 SKUs" />
-        <MetricBadge className="metric-badge--hero" label="Return" value="Top 3" tone="green" />
+        <MetricBadge className="metric-badge--hero" label="Output" value="Top 3 candidates" tone="green" />
+        <MetricBadge className="metric-badge--hero" label="Purpose" value="Parser + rank test" tone="muted" />
         <MetricBadge
           className="metric-badge--hero"
           label="Mode"
@@ -163,7 +165,7 @@ export function SearchPage() {
           <Panel className="search-panel">
             <form onSubmit={handleSubmit}>
               <label className="field-label" htmlFor="query">
-                Customer request
+                Single catalog query
               </label>
               <InputShell icon={<Search size={20} />}>
                 <input
@@ -173,7 +175,7 @@ export function SearchPage() {
                   placeholder="Example: 1/4-20 x 3/4 hex cap screw zinc"
                 />
                 <Button disabled={loading} type="submit">
-                  {loading ? 'Searching' : 'Search'}
+                  {loading ? 'Ranking' : 'Rank candidates'}
                 </Button>
               </InputShell>
               <div className="example-row" aria-label="Example queries">
@@ -196,8 +198,8 @@ export function SearchPage() {
           <section className="results-section" aria-live="polite">
             <div className="section-heading">
               <div>
-                <span className="section-kicker">Matches</span>
-                <h2>Top matches</h2>
+                <span className="section-kicker">Candidate ranking</span>
+                <h2>Top-3 catalog candidates</h2>
               </div>
               {response && (
                 <p>
@@ -232,7 +234,11 @@ export function SearchPage() {
         <aside className="inspector-column">
           <Panel className="context-banner">
             <Sparkles size={18} />
-            <span>{selectedCustomerName ? `Personalized for ${selectedCustomerName}` : 'Base catalog ranking'}</span>
+            <span>
+              {selectedCustomerName
+                ? `Single-query sandbox personalized for ${selectedCustomerName}`
+                : 'Single-query sandbox using base catalog ranking'}
+            </span>
           </Panel>
           <RepairContextPanel
             context={response?.repair_context ?? null}
@@ -283,8 +289,8 @@ export function SearchPage() {
           <Panel className="small-system-card">
             <Database size={18} />
             <div>
-              <strong>In-memory index</strong>
-              <span>BM25 text rank plus soft parser boosts, shared by search and intake.</span>
+              <strong>Matcher microscope</strong>
+              <span>Use this page to inspect one query before the same matcher is reused by intake and email.</span>
             </div>
           </Panel>
         </aside>

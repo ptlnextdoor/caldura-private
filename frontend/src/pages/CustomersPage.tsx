@@ -36,9 +36,9 @@ export function CustomersPage() {
     return (
       <PageSection
         className="customers-page"
-        copy="Customer history is now visible only to the authenticated customer."
+        copy="Inspect the order-history profile used as a bounded ranking signal for ambiguous catalog requests."
         kicker="Personalization"
-        title="Your customer history as a ranking signal."
+        title="Customer Context Directory"
       >
         <AuthRequired />
       </PageSection>
@@ -48,9 +48,9 @@ export function CustomersPage() {
   return (
     <PageSection
       className="customers-page"
-      copy="Inspect the lightweight customer profile that can bias your ambiguous searches without overwhelming catalog relevance."
+      copy="Inspect the order-history profile used as a bounded ranking signal for ambiguous catalog requests."
       kicker="Personalization"
-      title="Your customer history as a ranking signal."
+      title="Customer Context Directory"
     >
       <div className="hero-meta">
         <MetricBadge label={demoMode ? 'Demo profiles' : 'Authorized profile'} value={demoMode ? String(customers.length || 'Loading') : selected?.id ?? 'Loading'} />

@@ -241,9 +241,9 @@ export function EmailPage() {
     return (
       <PageSection
         className="email-page"
-        copy="Simulate an inbound customer email. Caldura reuses the intake matcher, applies the validation gate, and drafts the next sales action."
-        kicker="Email automation"
-        title="Email Automation Preview"
+        copy="Preview the draft workflow for an inbound customer email. Caldura reuses intake validation, then produces either a customer confirmation draft or an internal sales escalation without sending anything."
+        kicker="Preview-only email automation"
+        title="Inbound Email Draft Preview"
       >
         <AuthRequired />
       </PageSection>
@@ -253,9 +253,9 @@ export function EmailPage() {
   return (
     <PageSection
       className="email-page"
-      copy="Simulate an inbound customer email. Caldura parses line items, validates the request, and drafts either a customer confirmation or an internal escalation."
-      kicker="Email automation"
-      title="Email Automation Preview"
+      copy="Preview the draft workflow for an inbound customer email. Caldura reuses intake validation, then produces either a customer confirmation draft or an internal sales escalation without sending anything."
+      kicker="Preview-only email automation"
+      title="Inbound Email Draft Preview"
     >
       <div className="hero-meta">
         <MetricBadge
@@ -264,6 +264,7 @@ export function EmailPage() {
           tone={response?.recommended_action === 'DRAFT_CUSTOMER_CONFIRMATION' ? 'green' : 'orange'}
         />
         <MetricBadge label="Parsed lines" value={response ? String(response.intake.summary.line_count) : 'Loading'} />
+        <MetricBadge label="Workflow" value="Drafts only" tone="muted" />
         <MetricBadge
           label="Email mode"
           value={response ? response.delivery_guard.email_mode : 'preview'}
@@ -320,7 +321,7 @@ export function EmailPage() {
               </div>
               <div className="intake-actions">
                 <Button disabled={loading} type="submit">
-                  {loading ? 'Processing' : 'Preview email workflow'}
+                  {loading ? 'Processing' : 'Generate draft preview'}
                 </Button>
                 <span>{response ? `${response.intake.summary.latency_ms} ms` : 'Preview-only, no send'}</span>
               </div>
@@ -341,25 +342,34 @@ export function EmailPage() {
             </div>
           )}
 
-          <section className="draft-grid">
-            <EmailDraftPanel
-              draft={response?.customer_confirmation_draft ?? null}
-              emptyCopy="Customer confirmation draft is only generated when every extracted line passes AUTO_RESPOND."
-              kicker="Artifact"
-              title="Customer confirmation draft"
-            />
-            <EmailDraftPanel
-              draft={response?.internal_sales_draft ?? null}
-              emptyCopy="Internal escalation draft appears only when the validation gate routes the request to sales review or a blocked queue."
-              kicker="Artifact"
-              title="Internal sales escalation draft"
-            />
+          <section className="email-artifacts" aria-live="polite">
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">Draft artifacts</span>
+                <h2>What the email workflow would hand off</h2>
+              </div>
+              <p>Exactly one draft path appears after validation: customer confirmation or internal escalation.</p>
+            </div>
+            <div className="draft-grid">
+              <EmailDraftPanel
+                draft={response?.customer_confirmation_draft ?? null}
+                emptyCopy="No customer-facing draft is produced unless every extracted line passes AUTO_RESPOND."
+                kicker="Customer path"
+                title="Confirmation draft"
+              />
+              <EmailDraftPanel
+                draft={response?.internal_sales_draft ?? null}
+                emptyCopy="No internal escalation is produced when the request is safe enough for a customer confirmation draft."
+                kicker="Sales path"
+                title="Escalation draft"
+              />
+            </div>
           </section>
 
           <IntakeResultsSection
             response={response?.intake ?? null}
             kicker="Parsed intake"
-            title="Email line validation"
+            title="Why that draft path was chosen"
             emptyCopy="Run an email preview to inspect parsed lines, matches, and validation decisions."
           />
         </div>
@@ -367,7 +377,11 @@ export function EmailPage() {
         <aside className="inspector-column">
           <Panel className="context-banner">
             <ClipboardList size={18} />
-            <span>{selectedCustomerName ? `Personalized for ${selectedCustomerName}` : 'Base catalog ranking'}</span>
+            <span>
+              {selectedCustomerName
+                ? `Email preview personalized for ${selectedCustomerName}`
+                : 'Email preview using base catalog ranking'}
+            </span>
           </Panel>
           <ValidationPanel validation={response?.intake.overall_validation ?? null} />
           <DeliveryGuardPanel guard={response?.delivery_guard ?? null} />
